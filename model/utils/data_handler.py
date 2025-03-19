@@ -361,33 +361,6 @@ class DataHandler:
         except (FileNotFoundError, ValueError) as e:
             raise ValueError(f"Failed to load emissions data: {e}")
     
-    def _load_price_response_data(self):
-        """Load price response data from CSV file."""
-        try:
-            file_path = self.demand_dir / "price_response.csv"
-            df = self._load_csv(file_path, index_col='year')
-            
-            # Convert index to int if it's years
-            if df.index.dtype == 'object':
-                try:
-                    df.index = df.index.astype(int)
-                except ValueError:
-                    # Not year-based index, keep as is
-                    pass
-            
-            self.price_response_data = df
-            
-        except (FileNotFoundError, ValueError) as e:
-            print(f"Warning: Could not load price response data: {e}")
-            # Create empty dataframe
-            years = range(self.model_parameters.get('start_year', 2022),
-                         self.model_parameters.get('end_year', 2050) + 1)
-            self.price_response_data = pd.DataFrame(
-                index=years,
-                columns=['price_elasticity'],
-                data=-0.1  # Default elasticity
-            )
-    
     #
     # Config-based data loading methods
     #
