@@ -387,7 +387,8 @@ class StockpileSupply:
         self._initialise_data()
         self.calculate()
     
-    def get_available_supply(self) -> pd.Series:
+    @property
+    def available_supply(self) -> pd.Series:
         """
         Get the available supply from the stockpile.
         

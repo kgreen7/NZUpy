@@ -240,11 +240,6 @@ class DataHandler:
         except (FileNotFoundError, ValueError) as e:
             raise ValueError(f"Failed to load industrial allocation data: {e}")
     
-    def _load_stockpile_parameters(self):
-        """Load stockpile parameters from CSV file."""
-        # No longer needed - we always get from model_parameters.csv
-        pass
-    
     def _load_stockpile_balance_data(self):
         """Load stockpile balance data from CSV file."""
         try:
@@ -608,42 +603,6 @@ class DataHandler:
         
         return ia_data
     
-    def get_industrial_allocation_data(self, config: Optional[str] = None) -> pd.DataFrame:
-        """
-        Get industrial allocation data for a specific configuration.
-        
-        Args:
-            config: The configuration name to load (e.g., 'central', 'high', 'low').
-                   If None, returns the default configuration.
-        
-        Returns:
-            DataFrame with industrial allocation data for the specified configuration.
-        """
-        if not self.use_config_loading or config is None:
-            return self.industrial_allocation_data
-            
-        if config not in self.industrial_allocation_data['Config'].unique():
-            raise ValueError(f"Invalid allocation config: {config}")
-            
-        # Filter for the scenario
-        filtered_data = self.industrial_allocation_data[
-            self.industrial_allocation_data['Config'].str.lower() == config
-        ]
-        
-        if filtered_data.empty:
-            raise KeyError(f"No industrial allocation data found for config '{config}'")
-        
-        # Create DataFrame with baseline_allocation column
-        ia_data = pd.DataFrame({
-            'baseline_allocation': filtered_data.set_index('Year')['Value']
-        })
-        
-        # Convert year index to proper format
-        ia_data.index = ia_data.index.astype(int)
-        ia_data.index.name = 'year'
-        
-        return ia_data
-    
     def get_stockpile_parameters(self, config: Optional[str] = None) -> Dict[str, Any]:
         """
         Get stockpile parameters from stockpile balance data and model parameters.
@@ -903,37 +862,6 @@ class DataHandler:
             raise KeyError(f"No emissions data found for config '{config}'")
         
         return emissions_data
-    
-    def get_emissions_baseline(self, config: str = "central") -> pd.DataFrame:
-        """
-        Get emissions baseline data for a specific configuration.
-        
-        Args:
-            config: The configuration name to load (e.g., 'central', 'high', 'low').
-        
-        Returns:
-            DataFrame containing emissions baseline data for the specified configuration.
-        """
-        if not self.use_config_loading:
-            # For standard loading, extract from emissions data
-            emissions_df = self.get_emissions_data()
-            return pd.DataFrame({
-                'Year': emissions_df.index.tolist(),
-                'Value': emissions_df['base_emissions'].tolist()
-            })
-
-        if self.emissions_baselines_data is None or self.emissions_baselines_data.empty:
-            raise ValueError("Emissions baselines data not loaded")
-        
-        # Filter for scenario
-        baseline_data = self.emissions_baselines_data[
-            self.emissions_baselines_data['Config'].str.lower() == config
-        ][['Year', 'Value']]
-        
-        if baseline_data.empty:
-            raise KeyError(f"No emissions data found for config '{config}'")
-        
-        return baseline_data
     
     def _map_demand_model_name(self, config: str) -> str:
         """
@@ -1211,3 +1139,40 @@ class DataHandler:
             Dictionary containing 'stockpile' and 'surplus' values
         """
         return self.historical_manager.get_stockpile_start_values(year, config)
+
+    def get_industrial_allocation_data(self, config: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get industrial allocation data for a specific configuration.
+        This method is used by the scenario manager to get raw allocation data.
+        
+        Args:
+            config: The configuration name to load (e.g., 'central', 'high', 'low').
+                   If None, returns the default configuration.
+        
+        Returns:
+            DataFrame with industrial allocation data for the specified configuration.
+        """
+        if not self.use_config_loading or config is None:
+            return self.industrial_allocation_data
+            
+        if config not in self.industrial_allocation_data['Config'].unique():
+            raise ValueError(f"Invalid allocation config: {config}")
+            
+        # Filter for the scenario
+        filtered_data = self.industrial_allocation_data[
+            self.industrial_allocation_data['Config'].str.lower() == config
+        ]
+        
+        if filtered_data.empty:
+            raise KeyError(f"No industrial allocation data found for config '{config}'")
+        
+        # Create DataFrame with baseline_allocation column
+        ia_data = pd.DataFrame({
+            'baseline_allocation': filtered_data.set_index('Year')['Value']
+        })
+        
+        # Convert year index to proper format
+        ia_data.index = ia_data.index.astype(int)
+        ia_data.index.name = 'year'
+        
+        return ia_data

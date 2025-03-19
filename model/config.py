@@ -168,16 +168,23 @@ class ConfigManager:
         
         file_ext = os.path.splitext(file_path)[1].lower()
         
-        if file_ext in ['.yaml', '.yml']:
-            with open(file_path, 'r') as file:
+        with open(file_path, 'r') as file:
+            if file_ext in ['.yaml', '.yml']:
                 config_dict = yaml.safe_load(file)
-        elif file_ext == '.json':
-            with open(file_path, 'r') as file:
+            elif file_ext == '.json':
                 config_dict = json.load(file)
-        else:
-            raise ValueError(f"Unsupported configuration file format: {file_ext}")
+            else:
+                raise ValueError(f"Unsupported configuration file format: {file_ext}")
         
-        self._update_from_dict(config_dict)
+        # Update configuration directly from dictionary
+        for key, value in config_dict.items():
+            if hasattr(self.config, key):
+                if key in ['supply', 'demand', 'optimiser']:
+                    for subkey, subvalue in value.items():
+                        if hasattr(getattr(self.config, key), subkey):
+                            setattr(getattr(self.config, key), subkey, subvalue)
+                else:
+                    setattr(self.config, key, value)
     
     def save_to_file(self, file_path: str) -> None:
         """
@@ -190,44 +197,12 @@ class ConfigManager:
             ValueError: If the file format is not supported.
         """
         config_dict = asdict(self.config)
-        
         file_ext = os.path.splitext(file_path)[1].lower()
         
-        if file_ext in ['.yaml', '.yml']:
-            with open(file_path, 'w') as file:
+        with open(file_path, 'w') as file:
+            if file_ext in ['.yaml', '.yml']:
                 yaml.dump(config_dict, file, default_flow_style=False)
-        elif file_ext == '.json':
-            with open(file_path, 'w') as file:
+            elif file_ext == '.json':
                 json.dump(config_dict, file, indent=2)
-        else:
-            raise ValueError(f"Unsupported configuration file format: {file_ext}")
-    
-    def _update_from_dict(self, config_dict: Dict[str, Any]) -> None:
-        """
-        Update the configuration from a dictionary.
-        
-        Args:
-            config_dict: Dictionary containing configuration values.
-        """
-        # Update top-level parameters
-        for key, value in config_dict.items():
-            if hasattr(self.config, key) and key not in ['supply', 'demand', 'optimiser']:
-                setattr(self.config, key, value)
-        
-        # Update supply configuration
-        if 'supply' in config_dict:
-            for key, value in config_dict['supply'].items():
-                if hasattr(self.config.supply, key):
-                    setattr(self.config.supply, key, value)
-        
-        # Update demand configuration
-        if 'demand' in config_dict:
-            for key, value in config_dict['demand'].items():
-                if hasattr(self.config.demand, key):
-                    setattr(self.config.demand, key, value)
-        
-        # Update optimiser configuration
-        if 'optimiser' in config_dict:
-            for key, value in config_dict['optimiser'].items():
-                if hasattr(self.config.optimiser, key):
-                    setattr(self.config.optimiser, key, value)
+            else:
+                raise ValueError(f"Unsupported configuration file format: {file_ext}")
