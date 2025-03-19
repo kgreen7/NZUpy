@@ -120,7 +120,8 @@ The project is organised into the following directories:
   - **interface/** - Charting and user interface functionality
 - **data/** - Input data and model outputs
   - **inputs/** - Model input data
-  - **outputs/** - Model output data
+- **examples/** - Example notebooks demonstrating operation of model
+  - **outputs/** - Results data for example notebooks
 
 ## Model Components
 
@@ -167,10 +168,12 @@ See the example notebooks for detailed configuration examples.
 
 A small selection of features from the Government's model have yet to be implemented and are planned for inclusion in the coming weeks/months:
 
-- Fuller documentation
+- Documentation
 - Enable use of Manley equation afforestation response
 - Improved representation of historical years data in output results
 - Ability to run model with fxed (exogenous) NZU price paths
+
+The model will also be updated following the release of the Climate Change Commission's forthcoming advice on 2026-2030 NZ ETS auction settings to incorporate their recommendations.
 
 ## Frequently asked questions
 
