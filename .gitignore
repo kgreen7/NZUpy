@@ -176,12 +176,11 @@ cython_debug/
 
 # Visual Studio Code
 .vscode/
-.cursorrules
+.cusorrules
 
 #Custom files
 *.html
 *.png
-*.pdf
 *.xlsx
 *.xls
 *.docx
