@@ -1,7 +1,7 @@
 # Data manipulation and analysis
 numpy
 pandas
-openpyxl  # For excel file support - testing/validation vis-a-vis original excel model
+# openpyxl  # For excel file support - testing/validation vis-a-vis original excel model
 
 # Plotting
 plotly==5.22.0 # Non-windows users can install more recent version
