@@ -1,0 +1,41 @@
+Config,Variable,Year,Value,Units,Notes
+CCC22_central,surplus,2022,49100,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC22_central,stockpile,2022,145300,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC22_low,surplus,2022,33278,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC22_low,stockpile,2022,145300,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC22_high,surplus,2022,66428,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC22_high,stockpile,2022,145300,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC24_central,surplus,2023,68100,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC24_central,stockpile,2023,160800,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice - Sep 23 balance
+CCC24_low,surplus,2023,51100,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC24_low,stockpile,2023,160800,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice - Sep 23 balance
+CCC24_high,surplus,2023,84300,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice
+CCC24_high,stockpile,2023,160800,Kt CO2-e / 000 NZUs,Refer CCC 2024 Feb advice - Sep 23 balance
+central,surplus,2022,49100,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+central,stockpile,2022,164330,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+central,surplus,2023,68100,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+central,stockpile,2023,159902,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+central,stockpile,2024,150388,Kt CO2-e / 000 NZUs,EPA year-end 2024
+low,surplus,2022,33278,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+low,stockpile,2022,164330,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+low,surplus,2023,51100,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+low,stockpile,2023,159902,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+low,surplus,2024,35600,Kt CO2-e / 000 NZUs,EY mid-2024 estimate for low
+low,stockpile,2024,150388,Kt CO2-e / 000 NZUs,EPA year-end 2024
+high,surplus,2022,66428,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+high,stockpile,2022,164330,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+high,surplus,2023,84300,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+high,stockpile,2023,159902,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
+high,stockpile,2024,150388,Kt CO2-e / 000 NZUs,EPA year-end 2024
+MFE24_central,surplus,2023,67300,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+MFE24_central,stockpile,2023,159902,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+MFE24_low,surplus,2023,46800,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+MFE24_low,stockpile,2023,159902,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+MFE24_high,surplus,2023,85600,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+MFE24_high,stockpile,2023,159902,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+EY24_central,surplus,2023,52400,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+EY24_central,stockpile,2023,159902,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+EY24_low,surplus,2023,35600,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+EY24_low,stockpile,2023,159902,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+EY24_high,surplus,2023,64500,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
+EY24_high,stockpile,2023,159902,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE

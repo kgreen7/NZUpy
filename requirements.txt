@@ -1,0 +1,22 @@
+# Data manipulation and analysis
+numpy
+pandas
+openpyxl  # For excel file support - testing/validation vis-a-vis original excel model
+
+# Plotting
+plotly==5.22.0 # Non-windows users can install more recent version
+kaleido==0.1.0.post1 # Non-windows users can install more recent version, but these cause .png export issues for Windows at 11/03/2025
+
+# Jupyter
+notebook # or jupyterlab
+IPython
+ipywidgets
+
+# Testing
+pytest>=6.2.5
+pytest-cov>=2.12.0  # For test coverage reports
+
+
+# Contributions - optional
+# black>=22.3.0    # For code formatting 
+# isort>=5.10.1    # For import sorting
