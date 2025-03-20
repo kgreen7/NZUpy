@@ -1099,22 +1099,109 @@ class NZUpy:
                 scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
         """
         Set a time series for a specific component and scenario.
-        NOT IMPLEMENTED YET - Placeholder for Phase 1 future development.
-        
-        This method will be implemented in the next iteration of Phase 1.
         
         Args:
             series_name: Name of the time series to set
             data: New data for the time series (pandas Series)
-            component: Component the series belongs to
+            component: Component the series belongs to ('auction', 'industrial', 'forestry', 'emissions')
             scenario_index: Index of the scenario to modify (default: 0)
             scenario_name: Name of the scenario to modify (overrides scenario_index if provided)
             
         Returns:
             Self for method chaining
         """
-        print("The set_series method is not yet implemented.")
-        print("This will be available in a future update.")
+        if not self._primed:
+            raise ValueError("Model must be primed before setting series data. Call prime() first.")
+        
+        # Resolve scenario_index if scenario_name provided
+        if scenario_name is not None:
+            if scenario_name not in self.scenarios:
+                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
+            scenario_index = self.scenarios.index(scenario_name)
+        
+        # Validate scenario_index
+        if scenario_index < 0 or scenario_index >= len(self.scenarios):
+            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
+        
+        # Get scenario name for display
+        scenario_name = self.scenarios[scenario_index]
+        
+        # Get component configuration
+        component_config = self.component_configs[scenario_index]
+        
+        # Handle different components
+        if component == 'auction':
+            # Get auction data
+            auction_data = self.data_handler.get_auction_data(component_config.auctions)
+            
+            # Validate series name
+            valid_series = ['base_volume', 'auction_reserve_price', 'ccr_trigger_price_1', 
+                           'ccr_trigger_price_2', 'ccr_volume_1', 'ccr_volume_2']
+            if series_name not in valid_series:
+                raise ValueError(f"Invalid auction series: '{series_name}'. Valid options: {', '.join(valid_series)}")
+            
+            # Update the series
+            auction_data[series_name] = data
+            
+            # Update the data handler's auction data
+            if hasattr(self.data_handler, 'auction_data'):
+                self.data_handler.auction_data = auction_data
+            
+            print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
+            
+        elif component == 'industrial':
+            # Get industrial allocation data
+            industrial_data = self.data_handler.get_industrial_allocation_data(component_config.industrial_allocation)
+            
+            # Validate series name
+            valid_series = ['baseline_allocation', 'activity_adjustment']
+            if series_name not in valid_series:
+                raise ValueError(f"Invalid industrial series: '{series_name}'. Valid options: {', '.join(valid_series)}")
+            
+            # Update the series
+            industrial_data[series_name] = data
+            
+            # Update the data handler's industrial allocation data
+            if hasattr(self.data_handler, 'industrial_allocation_data'):
+                self.data_handler.industrial_allocation_data = industrial_data
+            
+            print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
+            
+        elif component == 'forestry':
+            # Get forestry data
+            forestry_data = self.data_handler.get_forestry_data(component_config.forestry)
+            
+            # Validate series name
+            valid_series = ['forestry_supply']
+            if series_name not in valid_series:
+                raise ValueError(f"Invalid forestry series: '{series_name}'. Valid options: {', '.join(valid_series)}")
+            
+            # Update the series
+            forestry_data[series_name] = data
+            
+            # Update the data handler's forestry data
+            if hasattr(self.data_handler, 'forestry_data'):
+                self.data_handler.forestry_data = forestry_data
+            
+            print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
+            
+        elif component == 'emissions':
+            # Get emissions data
+            emissions_data = self.data_handler.get_emissions_data(component_config.emissions)
+            
+            # Validate series name
+            valid_series = ['emissions']
+            if series_name not in valid_series:
+                raise ValueError(f"Invalid emissions series: '{series_name}'. Valid options: {', '.join(valid_series)}")
+            
+            # Update the series
+            if isinstance(emissions_data, pd.DataFrame) and 'Year' in emissions_data.columns:
+                emissions_data.loc[emissions_data['Year'].isin(data.index), 'Value'] = data
+            
+            print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
+            
+        else:
+            raise ValueError(f"Invalid component: '{component}'. Valid options: auction, industrial, forestry, emissions")
         
         return self
 
