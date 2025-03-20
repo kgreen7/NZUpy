@@ -264,14 +264,17 @@ class DataHandler:
             forestry_df = df[df['Variable'] == 'forestry_tradeable']
             
             # Create DataFrame with forestry_supply column (rename from tradeable)
-            forestry_data = forestry_df.pivot(
-                index='Year', 
-                columns='Config',
-                values='Value'
+            forestry_data = pd.DataFrame(
+                forestry_df.pivot(
+                    index='Year', 
+                    columns='Config',
+                    values='Value'
+                )
             )
             
-            # Add forestry_supply column for compatibility
-            forestry_data['forestry_supply'] = forestry_data['central']
+            # Rename the column to forestry_supply for the central config
+            if 'central' in forestry_data.columns:
+                forestry_data['forestry_supply'] = forestry_data['central']
             
             # Convert index to int
             forestry_data.index = forestry_data.index.astype(int)
@@ -738,28 +741,28 @@ class DataHandler:
         if not self.use_config_loading or config is None:
             return self.forestry_data
             
-        if config not in self.forestry_data['Config'].unique():
-            raise ValueError(f"Invalid forestry config: {config}")
+        if self.removals_data is None or self.removals_data.empty:
+            raise ValueError("Removals data not loaded")
             
-        # Filter for the scenario and forestry_tradeable variable
-        forestry_data = self.removals_data[
-            (self.removals_data['Config'].str.lower() == config) &
-            (self.removals_data['Variable'] == 'forestry_tradeable')
-        ]
+        # Filter for forestry_tradeable data and the specified config
+        forestry_df = self.removals_data[
+            (self.removals_data['Variable'] == 'forestry_tradeable') &
+            (self.removals_data['Config'].str.lower() == config.lower())
+        ][['Year', 'Value']]  # Only keep Year and Value columns
         
-        if forestry_data.empty:
-            raise KeyError(f"No forestry_tradeable data found for config '{config}'")
+        if forestry_df.empty:
+            raise KeyError(f"No forestry data found for config '{config}'")
         
         # Create DataFrame with forestry_supply column
-        forestry_df = pd.DataFrame({
-            'forestry_supply': forestry_data.set_index('Year')['Value']
+        result_df = pd.DataFrame({
+            'forestry_supply': forestry_df.set_index('Year')['Value']
         })
         
         # Ensure year index is integer type
-        forestry_df.index = forestry_df.index.astype(int)
-        forestry_df.index.name = 'year'
+        result_df.index = result_df.index.astype(int)
+        result_df.index.name = 'year'
         
-        return forestry_df
+        return result_df
     
     def get_forestry_removals(self, config: Optional[str] = None) -> pd.DataFrame:
         """

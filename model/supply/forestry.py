@@ -57,6 +57,9 @@ class ForestrySupply:
         # Calculate static supply from the input data
         self.results['static_supply'] = self.forestry_data['forestry_supply']
         
+        # Set total supply equal to static supply since we're not using Manley model
+        self.results['total_supply'] = self.results['static_supply']
+        
         return self.results
     
     def get_total_supply(self) -> pd.Series:
