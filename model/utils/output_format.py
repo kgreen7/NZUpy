@@ -717,7 +717,7 @@ class OutputFormat:
             component_config = self.model.component_configs[scenario_index]
             
             # Extract key input parameters
-            discount_rate = getattr(component_config, 'discount_rate', 0.05)
+            discount_rate = getattr(component_config, 'discount_rate', None)
             data[(scenario, 'discount_rate')] = pd.Series(discount_rate, index=self.years)
             
             data[(scenario, 'scenario_name')] = pd.Series(scenario, index=self.years)
@@ -826,14 +826,6 @@ class OutputFormat:
         for var in sorted(self._get_variables_by_category('inputs')):
             print(f"  self.inputs.xs('{var}', level='variable', axis=1) - {self._get_variable_description(var)}")
         
-        print("\nFor plotting examples:")
-        print("  import matplotlib.pyplot as plt")
-        print("  plt.figure(figsize=(10, 6))")
-        print("  plt.plot(model.prices.xs('central', axis=1))")
-        print("  plt.title('Carbon Price - central Scenario')")
-        print("  plt.xlabel('Year')")
-        print("  plt.ylabel('Price ($/tonne CO2-e)')")
-        print("  plt.grid(True)")
     
     def _get_variables_by_category(self, category):
         """Helper method to get variables for a specific category."""
@@ -848,8 +840,10 @@ class OutputFormat:
             'stockpile': ['balance', 'surplus_balance', 'non_surplus_balance', 'ratio_to_demand',
                         'units_used', 'surplus_used', 'non_surplus_used', 'forestry_held',
                         'forestry_surrender', 'forestry_contribution', 'without_forestry',
-                        'borrowed_units', 'payback_units', 'net_borrowing'],
-            'demand': ['baseline', 'emissions', 'gross_mitigation', 'net_mitigation'],
+                        'borrowed_units', 'payback_units', 'net_borrowing', 'cumulative_net_borrowing',
+                        'cumulative_forestry_additions'],
+            'demand': ['baseline_emissions', 'emissions', 'gross_mitigation', 'net_mitigation', 
+                      'payback_units', 'total_demand_with_paybacks'],
             'inputs': ['discount_rate', 'scenario_name', 'years', 'stockpile_start', 
                       'surplus_start', 'payback_period', 'liquidity_limit', 
                       'price_response_forward_years', 'demand_model']

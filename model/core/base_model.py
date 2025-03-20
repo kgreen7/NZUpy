@@ -248,7 +248,7 @@ class NZUpy:
         Returns:
             List of available configuration names
         """
-        return self.scenario_manager.list_available_options(component_type)
+        return self.scenario_manager.list_available_configs(component_type)
     
     def prime(self) -> 'NZUpy':
         """
@@ -271,8 +271,8 @@ class NZUpy:
         
         # Initialise internal data structures for calculations
         self.prices = pd.Series(index=self.calculation_years, dtype=float)
-        self.supply = pd.DataFrame(index=self.years)  # Keep supply for model years only
-        self.demand = pd.Series(index=self.years, dtype=float)  # Keep demand for model years only
+        self.supply = pd.DataFrame(index=self.years)  # Supply for model years only
+        self.demand = pd.Series(index=self.years, dtype=float)  # Demand for model years only
         
         # Price change rate (the optimisation variable)
         self.price_change_rate = 0.0

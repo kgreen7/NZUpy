@@ -687,7 +687,7 @@ class CalculationEngine:
         
         for year in yearly_gaps.index:
             if penalise_shortfalls and yearly_gaps[year] < 0:  # Supply shortfall with penalty
-                penalised_gaps[year] = abs(yearly_gaps[year]) * 1000000  # Apply severe penalty
+                penalised_gaps[year] = abs(yearly_gaps[year]) * 1000000  # Apply severe penalty matching Excel model approach
             else:  # Supply excess or no penalty requested
                 penalised_gaps[year] = abs(yearly_gaps[year])
                 
@@ -695,7 +695,7 @@ class CalculationEngine:
     
     def _filter_and_weight_gaps(self, penalised_gaps: pd.Series) -> pd.Series:
         """
-        Filter gaps to exclude years before stockpile_usage_start_year and apply weights.
+        Filter gaps to exclude years before stockpile_usage_start_year and apply weights. Currently not used, but set-up for future use.
         
         Args:
             penalised_gaps: Series of penalised gaps

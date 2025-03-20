@@ -295,15 +295,3 @@ class HistoricalDataManager:
         nominal_prices = convert_real_to_nominal(real_prices, cpi_data=self.cpi_data)
         return pd.Series(nominal_prices)
     
-    def convert_to_real(self, nominal_prices: pd.Series) -> pd.Series:
-        """
-        Convert nominal prices to real prices (2023 NZD).
-        
-        Args:
-            nominal_prices: Series of nominal prices
-            
-        Returns:
-            Series of real prices (2023 NZD)
-        """
-        real_prices = convert_nominal_to_real(nominal_prices, cpi_data=self.cpi_data)
-        return pd.Series(real_prices)

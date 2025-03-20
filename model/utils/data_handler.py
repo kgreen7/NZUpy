@@ -247,26 +247,8 @@ class DataHandler:
             file_path = self.stockpile_dir / "stockpile_balance.csv"
             df = self._load_csv(file_path)
             
-            # Create DataFrame with required columns
-            stockpile_data = pd.DataFrame(index=df['Year'].unique())
-            stockpile_data.index = stockpile_data.index.astype(int)
-            stockpile_data.index.name = 'year'
-            
-            # Get data for each required variable
-            stockpile_values = df[df['Variable'] == 'stockpile']
-            surplus_values = df[df['Variable'] == 'surplus']
-            
-            # Add columns with central config data
-            stockpile_data['stockpile'] = pd.to_numeric(
-                stockpile_values[stockpile_values['Config'] == 'central'].set_index('Year')['Value'],
-                errors='coerce'
-            )
-            stockpile_data['surplus'] = pd.to_numeric(
-                surplus_values[surplus_values['Config'] == 'central'].set_index('Year')['Value'],
-                errors='coerce'
-            )
-            
-            self.stockpile_balance_data = stockpile_data
+            # Store the full DataFrame with all configs
+            self.stockpile_balance_data = df
             
         except (FileNotFoundError, ValueError) as e:
             raise ValueError(f"Failed to load stockpile balance data: {e}")
@@ -497,11 +479,10 @@ class DataHandler:
             return self.optimisation_parameters.copy()
         else:
             # For scenario-based loading, use default values
-            return {
-                'coarse_step': 15,
-                'fine_step': 1,
-                'max_rate': 200,
-            }
+            if self.optimisation_parameters is not None and not self.optimisation_parameters.empty:
+                return self.optimisation_parameters.copy()
+            else:
+                raise ValueError("Failed to load optimisation parameters")
     
     def get_auction_data(self, config: Optional[str] = None) -> pd.DataFrame:
         """
@@ -614,29 +595,55 @@ class DataHandler:
             Dictionary of stockpile parameters
             
         Raises:
-            ValueError: If required parameters are missing
+            ValueError: If required parameters are missing or cannot be loaded
         """
         # Get model parameters for non-stockpile values
         params = self.get_model_parameters(config)
         
         # Get stockpile balance data for the config
         try:
-            stockpile_data = self.get_stockpile_balance(config)
+            if not hasattr(self, 'stockpile_balance_data') or self.stockpile_balance_data is None:
+                self._load_stockpile_balance_data()
             
-            # Get latest year's values from stockpile balance data
-            latest_year = max(stockpile_data.index)
-            initial_stockpile = stockpile_data.loc[latest_year, 'stockpile']
-            initial_surplus = stockpile_data.loc[latest_year, 'surplus']
-        except (ValueError, KeyError) as e:
-            # If no data for this config, try central config
-            if config and config.lower() != 'central':
-                print(f"Warning: No stockpile balance data for config '{config}', using 'central'")
-                stockpile_data = self.get_stockpile_balance('central')
-                latest_year = max(stockpile_data.index)
-                initial_stockpile = stockpile_data.loc[latest_year, 'stockpile']
-                initial_surplus = stockpile_data.loc[latest_year, 'surplus']
-            else:
-                raise ValueError(f"Failed to load stockpile balance data: {e}")
+            # Filter for the config
+            config_data = self.stockpile_balance_data[
+                self.stockpile_balance_data['Config'].str.lower() == (config.lower() if config else 'central')
+            ]
+            
+            if config_data.empty:
+                # If no data for this config, try central config
+                if config and config.lower() != 'central':
+                    print(f"Warning: No stockpile balance data for config '{config}', using 'central'")
+                    config_data = self.stockpile_balance_data[
+                        self.stockpile_balance_data['Config'].str.lower() == 'central'
+                    ]
+                else:
+                    raise ValueError("No stockpile balance data found for any configuration")
+            
+            # Get the year before start year from model parameters
+            start_year = int(params['start_year'])
+            target_year = start_year - 1
+            
+            # Get data for target year
+            year_data = config_data[config_data['Year'] == target_year]
+            
+            if year_data.empty:
+                raise ValueError(f"No stockpile balance data found for year {target_year} (year before start year {start_year})")
+            
+            # Get stockpile value
+            stockpile_data = year_data[year_data['Variable'] == 'stockpile']
+            if stockpile_data.empty:
+                raise ValueError(f"No stockpile data found for year {target_year}")
+            initial_stockpile = float(stockpile_data['Value'].iloc[0])
+            
+            # Get surplus value
+            surplus_data = year_data[year_data['Variable'] == 'surplus']
+            if surplus_data.empty:
+                raise ValueError(f"No surplus data found for year {target_year}")
+            initial_surplus = float(surplus_data['Value'].iloc[0])
+            
+        except (ValueError, KeyError, IndexError) as e:
+            raise ValueError(f"Failed to load stockpile balance data: {e}")
         
         # Map CSV names to return names
         param_mapping = {
@@ -662,11 +669,11 @@ class DataHandler:
                 result[return_name] = float(value)
         
         # Add stockpile values
-        result['initial_stockpile'] = float(initial_stockpile)
-        result['initial_surplus'] = float(initial_surplus)
+        result['initial_stockpile'] = initial_stockpile
+        result['initial_surplus'] = initial_surplus
         
         # Add reference year
-        result['stockpile_reference_year'] = latest_year
+        result['stockpile_reference_year'] = target_year
         
         return result
     
@@ -895,186 +902,95 @@ class DataHandler:
             - constant, reduction_to_t1, price (from demand_models.csv)
             - model_number (passed parameter)
             - discount_rate, forward_years, price_conversion_factor (from model_parameters.csv)
+            
+        Raises:
+            FileNotFoundError: If demand_models.csv cannot be loaded
+            ValueError: If no parameters found for given config and model number
+            KeyError: If required parameters are missing from model_parameters.csv
         """
-        try:
-            # Load from demand_models.csv
-            file_path = self.demand_dir / "demand_models.csv"
-            df = self._load_csv(file_path)
+        # Load from demand_models.csv
+        file_path = self.demand_dir / "demand_models.csv"
+        df = self._load_csv(file_path)
+        
+        # Map config name to CSV format
+        mapped_config = self._map_demand_model_name(config)
+        
+        # Filter for config and model using correct column name
+        params = df[
+            (df['Config'].str.lower() == mapped_config.lower()) &
+            (df['Model'] == model_number)
+        ]
+        
+        if params.empty:
+            raise ValueError(f"No parameters found for config '{mapped_config}' and model {model_number}")
+        
+        # Convert demand model parameters to dictionary
+        model_params = dict(zip(params['Variable'], params['Value']))
+        
+        # Add model number to parameters
+        model_params['model_number'] = model_number
+        
+        # Load and add required parameters from model_parameters.csv
+        model_params_data = self.get_model_parameters(config)
+        
+        # Required parameters and their CSV names
+        param_mappings = {
+            'discount_rate': 'discount_rate',
+            'forward_years': 'forward_years', 
+            'price_conversion_factor': '2019_NZD'
+        }
+        
+        # Add each required parameter
+        for param_name, csv_name in param_mappings.items():
+            if csv_name not in model_params_data:
+                raise KeyError(f"Required parameter '{csv_name}' not found in model parameters")
             
-            # Map config name to CSV format
-            mapped_config = self._map_demand_model_name(config)
-            
-            # Filter for config and model using correct column name
-            params = df[
-                (df['Config'].str.lower() == mapped_config.lower()) &
-                (df['Model'] == model_number)
-            ]
-            
-            if params.empty:
-                raise ValueError(f"No parameters found for config '{mapped_config}' and model {model_number}")
-            
-            # Convert demand model parameters to dictionary
-            model_params = dict(zip(params['Variable'], params['Value']))
-            
-            # Add model number to parameters
-            model_params['model_number'] = model_number
-            
-            # Add parameters from model_parameters.csv
             try:
-                # Load model parameters for the same config
-                model_params_data = self.get_model_parameters(config)
-                
-                # Add required parameters with their CSV names
-                param_mappings = {
-                    'discount_rate': 'discount_rate',
-                    'forward_years': 'forward_years',
-                    'price_conversion_factor': '2019_NZD'
-                }
-                
-                for param_name, csv_name in param_mappings.items():
-                    if csv_name in model_params_data:
-                        try:
-                            model_params[param_name] = float(model_params_data[csv_name])
-                        except (ValueError, TypeError):
-                            if model_params_data[csv_name] != 'na':
-                                print(f"Warning: Could not convert {csv_name} value '{model_params_data[csv_name]}' to float. Using default.")
-                            # Set defaults if conversion fails
-                            defaults = {
-                                'discount_rate': 0.05,
-                                'forward_years': 10,
-                                'price_conversion_factor': 1.0
-                            }
-                            model_params[param_name] = defaults[param_name]
-                    else:
-                        print(f"Warning: {csv_name} not found in model parameters. Using default.")
-                        # Set defaults if parameter missing
-                        defaults = {
-                            'discount_rate': 0.05,
-                            'forward_years': 10,
-                            'price_conversion_factor': 1.0
-                        }
-                        model_params[param_name] = defaults[param_name]
-                
-            except Exception as e:
-                print(f"Warning: Could not load additional parameters from model_parameters.csv: {e}")
-                # Set defaults if loading fails
-                model_params.update({
-                    'discount_rate': 0.05,
-                    'forward_years': 10,
-                    'price_conversion_factor': 1.0
-                })
+                model_params[param_name] = float(model_params_data[csv_name])
+            except (ValueError, TypeError):
+                raise ValueError(f"Could not convert {csv_name} value '{model_params_data[csv_name]}' to float")
+        
+        return model_params
             
-            return model_params
-            
-        except Exception as e:
-            raise ValueError(f"Failed to load demand model parameters: {e}")
     
-    def list_available_options(self, option_type: str) -> List[str]:
-        """List available options for a component type."""
-        try:
-            # Map option types to their data attributes and column names
-            option_mapping = {
-                'emissions': (self.emissions_baselines_data, 'Config'),
-                'auction': (self.auctions_data, 'Config'),
-                'industrial': (self.industrial_allocation_data, 'Config'),
-                'forestry': (self.removals_data, 'Config'),
-                'demand_model': (self.demand_models_data, 'Config')
-            }
-            
-            if option_type not in option_mapping:
-                raise ValueError(f"Unknown option type: {option_type}")
-            
-            data, column = option_mapping[option_type]
-            
-            if data is not None and not data.empty and column in data.columns:
-                configs = sorted(data[column].unique().tolist())
-                return configs
-            
-            # If we can't find configs, return central only without warning
-            return ['central']
-            
-        except Exception as e:
-            # If there's an error, return central only without warning
-            return ['central']
-            
-    def list_available_configs(self) -> Dict[str, List[str]]:
+    def list_available_configs(self, component_type: str) -> List[str]:
         """
-        List all available configurations for each data type.
+        List available predefined input configurations for a component type.
+        
+        Args:
+            component_type: Type of component to list configs for ('emissions', 'auction', 
+                        'industrial', 'forestry', 'demand_model', 'stockpile')
         
         Returns:
-            Dictionary mapping data types to lists of available configs
+            List of available configuration names (e.g., ['central', 'high', 'low'])
         """
-        if self.use_config_loading:
-            # For scenario-based loading
-            configs = {}
+        # Map component types to their data attributes and column names
+        option_mapping = {
+            'emissions': (self.emissions_baselines_data, 'Config'),
+            'auction': (self.auctions_data, 'Config'),
+            'industrial': (self.industrial_allocation_data, 'Config'),
+            'forestry': (self.removals_data, 'Config'),
+            'demand_model': (self.demand_models_data, 'Config'),
+            'stockpile': (self.stockpile_balance_data, 'Config')
+        }
+        
+        if component_type not in option_mapping:
+            raise ValueError(f"Invalid component type: {component_type}. Must be one of {list(option_mapping.keys())}")
             
-            # Check model parameters for config column
-            if hasattr(self, 'model_parameters_data') and not self.model_parameters_data.empty:
-                if 'Config' in self.model_parameters_data.columns:
-                    configs['model_parameters'] = self.model_parameters_data['Config'].unique().tolist()
-                else:
-                    # Try to find a similar column
-                    config_columns = [col for col in self.model_parameters_data.columns if 'config' in col.lower()]
-                    if config_columns:
-                        configs['model_parameters'] = self.model_parameters_data[config_columns[0]].unique().tolist()
-            
-            # Check each dataframe for config columns
-            if hasattr(self, 'emissions_baselines_data') and not self.emissions_baselines_data.empty:
-                if 'Config' in self.emissions_baselines_data.columns:
-                    configs['emissions'] = self.emissions_baselines_data['Config'].unique().tolist()
-            
-            if hasattr(self, 'auctions_data') and not self.auctions_data.empty:
-                # Check if the expected column exists
-                if 'Config' in self.auctions_data.columns:
-                    configs['auctions'] = self.auctions_data['Config'].unique().tolist()
-                else:
-                    # Try to find a similar column
-                    config_columns = [col for col in self.auctions_data.columns if 'config' in col.lower()]
-                    if config_columns:
-                        configs['auctions'] = self.auctions_data[config_columns[0]].unique().tolist()
-            
-            if hasattr(self, 'industrial_allocation_data') and not self.industrial_allocation_data.empty:
-                # Check if the expected column exists
-                if 'Config' in self.industrial_allocation_data.columns:
-                    configs['industrial_allocation'] = self.industrial_allocation_data['Config'].unique().tolist()
-                else:
-                    # Try to find a similar column
-                    config_columns = [col for col in self.industrial_allocation_data.columns if 'config' in col.lower()]
-                    if config_columns:
-                        configs['industrial_allocation'] = self.industrial_allocation_data[config_columns[0]].unique().tolist()
-            
-            if hasattr(self, 'removals_data') and not self.removals_data.empty:
-                # Check if the expected column exists
-                if 'Config' in self.removals_data.columns:
-                    configs['forestry'] = self.removals_data['Config'].unique().tolist()
-                else:
-                    # Try to find a similar column
-                    config_columns = [col for col in self.removals_data.columns if 'config' in col.lower()]
-                    if config_columns:
-                        configs['forestry'] = self.removals_data[config_columns[0]].unique().tolist()
-            
-            if hasattr(self, 'demand_models_data') and not self.demand_models_data.empty:
-                if 'Config' in self.demand_models_data.columns:
-                    configs['demand_models'] = self.demand_models_data['Config'].unique().tolist()
-            
-            return configs
-        else:
-            # For standard loading, try to extract configs from data
-            result = {}
-            
-            # Get configs from scenario parameters
-            if hasattr(self, 'scenario_parameters') and self.scenario_parameters:
-                result['configs'] = list(self.scenario_parameters.keys())
-            
-            # Get configs from emissions data
-            if hasattr(self, 'emissions_data') and self.emissions_data is not None:
-                # Look for config columns
-                config_columns = [col for col in self.emissions_data.columns 
-                                  if col not in ['base_emissions', 'low_scenario', 'high_scenario']]
-                if config_columns:
-                    result['emissions'] = config_columns
-            
-            return result
+        data, config_col = option_mapping[component_type]
+        
+        try:
+            if data is not None and not data.empty and config_col in data.columns:
+                return sorted(data[config_col].unique().tolist())
+            else:
+                # Try to find similar columns if exact match not found
+                similar_cols = [col for col in data.columns if 'config' in col.lower()]
+                if similar_cols:
+                    return sorted(data[similar_cols[0]].unique().tolist())
+                return ['central']  # Default to central if no configs found
+        except Exception as e:
+            print(f"Warning: Error getting configs for {component_type}: {e}")
+            return ['central']  # Default to central on error
 
     def get_historical_data(self, variable: str) -> Optional[pd.Series]:
         """
@@ -1176,3 +1092,143 @@ class DataHandler:
         ia_data.index.name = 'year'
         
         return ia_data
+
+    def list_adjustable_parameters(self, component_type: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        List all parameters that can be adjusted for each component.
+        
+        Args:
+            component_type: Optional component type to filter results.
+            
+        Returns:
+            Dictionary mapping component names to their adjustable parameters.
+            Each parameter includes:
+            - type: 'parameter' for single values, 'series' for time-varying data
+            - units: The units of measurement
+            - description: A description of what the parameter does
+        """
+        params = {
+            'stockpile': {
+                'initial_stockpile': {'type': 'parameter', 'units': 'kt CO2-e', 'description': 'Initial stockpile volume'},
+                'initial_surplus': {'type': 'parameter', 'units': 'kt CO2-e', 'description': 'Initial surplus volume'},
+                'liquidity_factor': {'type': 'parameter', 'units': '%', 'description': 'Annual non-surplus limit'},
+                'payback_period': {'type': 'parameter', 'units': 'years', 'description': 'Years to pay back borrowed units'},
+                'discount_rate': {'type': 'parameter', 'units': '%', 'description': 'Discount rate for calculations'},
+                'stockpile_balance': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Total stockpile balance over time'},
+                'surplus_balance': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Surplus balance over time'}
+            },
+            'auction': {
+                'base_volume': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Base auction volume over time'},
+                'reserve_price': {'type': 'parameter', 'units': '$/tonne', 'description': 'Minimum auction price'},
+                'ccr_trigger_price_1': {'type': 'parameter', 'units': '$/tonne', 'description': 'CCR1 trigger price'},
+                'ccr_trigger_price_2': {'type': 'parameter', 'units': '$/tonne', 'description': 'CCR2 trigger price'}
+            },
+            'industrial': {
+                'activity_adjustment': {'type': 'parameter', 'units': 'ratio', 'description': 'Activity level adjustment factor'},
+                'baseline_allocation': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Baseline allocation over time'}
+            },
+            'forestry': {
+                'forestry_tradeable': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Tradeable forestry units over time'},
+                'forestry_held': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Forestry units held over time'},
+                'forestry_surrender': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Forestry units surrendered over time'}
+            },
+            'demand': {
+                'model_number': {'type': 'parameter', 'units': '-', 'description': 'Demand model number (1 or 2)'},
+                'price_response': {'type': 'parameter', 'units': '%', 'description': 'Price response elasticity'},
+                'baseline_emissions': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Baseline emissions over time'}
+            }
+        }
+        
+        if component_type:
+            return params.get(component_type, {})
+        return params
+
+    def show_config_values(self, component_type: str, config: str = 'central') -> Dict[str, Any]:
+        """
+        Show current parameter values for a specific component and configuration.
+        
+        Args:
+            component_type: Type of component ('stockpile', 'auction', 'industrial', 'forestry', 'demand')
+            config: Configuration name (defaults to 'central')
+            
+        Returns:
+            Dictionary of current parameter values, with each value annotated as either:
+            - A single value (parameter)
+            - A pandas Series (time series)
+        """
+        try:
+            if component_type == 'stockpile':
+                values = self.get_stockpile_parameters(config)
+                # Get parameter types from list_adjustable_parameters
+                param_types = self.list_adjustable_parameters('stockpile')
+                # Return values with correct type annotations
+                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+            elif component_type == 'auction':
+                values = self.get_auction_data(config)
+                # Get parameter types from list_adjustable_parameters
+                param_types = self.list_adjustable_parameters('auction')
+                # First row contains parameter values
+                params = {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.iloc[0].items() if k in param_types}
+                # Add series data
+                series = {k: {'value': values[k], 'type': 'series'} for k in values.columns if k not in param_types}
+                return {**params, **series}
+            elif component_type == 'industrial':
+                values = self.get_industrial_allocation(config)
+                # Get parameter types from list_adjustable_parameters
+                param_types = self.list_adjustable_parameters('industrial')
+                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+            elif component_type == 'forestry':
+                values = self.get_forestry_data(config)
+                # Get parameter types from list_adjustable_parameters
+                param_types = self.list_adjustable_parameters('forestry')
+                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+            elif component_type == 'demand':
+                values = self.get_demand_model(config)
+                # Get parameter types from list_adjustable_parameters
+                param_types = self.list_adjustable_parameters('demand')
+                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+            else:
+                raise ValueError(f"Invalid component type: {component_type}")
+        except Exception as e:
+            print(f"Warning: Could not get values for {component_type} config '{config}': {e}")
+            return {}
+
+    def list_available_series(self, component_type: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        List all available data series for each component.
+        
+        Args:
+            component_type: Optional component type to filter results.
+            
+        Returns:
+            Dictionary mapping component names to their available data series.
+        """
+        series = {
+            'stockpile': {
+                'stockpile_balance': {'units': 'kt CO2-e', 'description': 'Total stockpile balance'},
+                'surplus_balance': {'units': 'kt CO2-e', 'description': 'Surplus balance'},
+                'non_surplus_balance': {'units': 'kt CO2-e', 'description': 'Non-surplus balance'}
+            },
+            'auction': {
+                'base_volume': {'units': 'kt CO2-e', 'description': 'Base auction volume'},
+                'ccr_volume_1': {'units': 'kt CO2-e', 'description': 'CCR1 volume'},
+                'ccr_volume_2': {'units': 'kt CO2-e', 'description': 'CCR2 volume'}
+            },
+            'industrial': {
+                'baseline_allocation': {'units': 'kt CO2-e', 'description': 'Baseline industrial allocation'},
+                'activity_adjustment': {'units': 'ratio', 'description': 'Activity level adjustment'}
+            },
+            'forestry': {
+                'forestry_tradeable': {'units': 'kt CO2-e', 'description': 'Tradeable forestry units'},
+                'forestry_held': {'units': 'kt CO2-e', 'description': 'Forestry units held'},
+                'forestry_surrender': {'units': 'kt CO2-e', 'description': 'Forestry units surrendered'}
+            },
+            'demand': {
+                'baseline_emissions': {'units': 'kt CO2-e', 'description': 'Baseline emissions'},
+                'price_adjusted_emissions': {'units': 'kt CO2-e', 'description': 'Price-adjusted emissions'}
+            }
+        }
+        
+        if component_type:
+            return series.get(component_type, {})
+        return series

@@ -53,7 +53,7 @@ class ScenarioManager:
         
         Args:
             component_type: Type of component to list configs for ('emissions', 'auction', 
-                        'industrial', 'forestry', 'demand_model')
+                        'industrial', 'forestry', 'demand_model', 'stockpile')
         
         Returns:
             List of available configuration names (e.g., ['central', 'high', 'low'])
@@ -97,6 +97,8 @@ class ScenarioManager:
             component_config.demand_sensitivity = config_name
             if model_number is not None:
                 component_config.demand_model_number = model_number
+        elif component_type == 'stockpile':
+            component_config.stockpile = config_name
         else:
             raise ValueError(f"Invalid component type: {component_type}")
         
@@ -132,6 +134,7 @@ class ScenarioManager:
         self.use_config(scenario_index, 'industrial', 'central')
         self.use_config(scenario_index, 'forestry', 'central')
         self.use_config(scenario_index, 'demand_model', 'central', model_number=2)
+        self.use_config(scenario_index, 'stockpile', 'central')  # Add stockpile config
         
         # Also set model_params to central
         self.model.component_configs[scenario_index].model_params = "central"
