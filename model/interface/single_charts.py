@@ -608,7 +608,7 @@ def supply_components_chart(model, scenario=None, start_year=None, end_year=None
                     fig.update_layout(
                         title=f"Supply Components - {scenario}",
                         xaxis_title="Year",
-                        yaxis_title="Units (kt CO₂-e)",
+                        yaxis_title="NZUs (thousands) /Kt CO₂-e)",
                         yaxis=dict(
                             rangemode='nonnegative',
                             range=[0, None]  # Set minimum to 0, let max auto-scale
@@ -743,7 +743,7 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                     fig.update_layout(
                         title=f"Stockpile Balance - {scenario}",
                         xaxis_title="Year",
-                        yaxis_title="Units (kt CO₂-e)",
+                        yaxis_title="NZUs (thousands) /Kt CO₂-e)",
                         yaxis=dict(
                             rangemode='tozero'
                         )
@@ -957,7 +957,7 @@ def supply_demand_balance_chart(model, scenario: Optional[str] = None, start_yea
     fig.update_layout(
         title=f"Supply-Demand Balance - {scenario}",
         xaxis_title="Year",
-        yaxis_title="Units (kt CO₂-e)",
+        yaxis_title="NZUs (thousands) /Kt CO₂-e)",
         yaxis=dict(
             rangemode='nonnegative',
             range=[0, None]  # Set minimum to 0, let max auto-scale

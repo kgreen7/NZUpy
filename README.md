@@ -185,6 +185,10 @@ The model will also be updated following the release of the Climate Change Commi
 
 - NZUpy is licensed under a permissive MIT license, so is free to use and adapt, including for commercial purposes (refer LICENSE file for specifics).
 
+***What do you have planned for the repository? Will you update the repository following the Climate Commission's next report on NZ ETS auction settings for 2026-2030?***
+
+- Yes, I plan to release an updated version of the model following annoucement of the Commission's recommendations for auction settings to allow users to easily incorporate these options.
+
 ## Contributions & issues
 
 Contributions to NZUpy are welcome!
