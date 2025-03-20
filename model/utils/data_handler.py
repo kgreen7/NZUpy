@@ -1093,56 +1093,6 @@ class DataHandler:
         
         return ia_data
 
-    def list_adjustable_parameters(self, component_type: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-        """
-        List all parameters that can be adjusted for each component.
-        
-        Args:
-            component_type: Optional component type to filter results.
-            
-        Returns:
-            Dictionary mapping component names to their adjustable parameters.
-            Each parameter includes:
-            - type: 'parameter' for single values, 'series' for time-varying data
-            - units: The units of measurement
-            - description: A description of what the parameter does
-        """
-        params = {
-            'stockpile': {
-                'initial_stockpile': {'type': 'parameter', 'units': 'kt CO2-e', 'description': 'Initial stockpile volume'},
-                'initial_surplus': {'type': 'parameter', 'units': 'kt CO2-e', 'description': 'Initial surplus volume'},
-                'liquidity_factor': {'type': 'parameter', 'units': '%', 'description': 'Annual non-surplus limit'},
-                'payback_period': {'type': 'parameter', 'units': 'years', 'description': 'Years to pay back borrowed units'},
-                'discount_rate': {'type': 'parameter', 'units': '%', 'description': 'Discount rate for calculations'},
-                'stockpile_balance': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Total stockpile balance over time'},
-                'surplus_balance': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Surplus balance over time'}
-            },
-            'auction': {
-                'base_volume': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Base auction volume over time'},
-                'reserve_price': {'type': 'parameter', 'units': '$/tonne', 'description': 'Minimum auction price'},
-                'ccr_trigger_price_1': {'type': 'parameter', 'units': '$/tonne', 'description': 'CCR1 trigger price'},
-                'ccr_trigger_price_2': {'type': 'parameter', 'units': '$/tonne', 'description': 'CCR2 trigger price'}
-            },
-            'industrial': {
-                'activity_adjustment': {'type': 'parameter', 'units': 'ratio', 'description': 'Activity level adjustment factor'},
-                'baseline_allocation': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Baseline allocation over time'}
-            },
-            'forestry': {
-                'forestry_tradeable': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Tradeable forestry units over time'},
-                'forestry_held': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Forestry units held over time'},
-                'forestry_surrender': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Forestry units surrendered over time'}
-            },
-            'demand': {
-                'model_number': {'type': 'parameter', 'units': '-', 'description': 'Demand model number (1 or 2)'},
-                'price_response': {'type': 'parameter', 'units': '%', 'description': 'Price response elasticity'},
-                'baseline_emissions': {'type': 'series', 'units': 'kt CO2-e', 'description': 'Baseline emissions over time'}
-            }
-        }
-        
-        if component_type:
-            return params.get(component_type, {})
-        return params
-
     def show_config_values(self, component_type: str, config: str = 'central') -> Dict[str, Any]:
         """
         Show current parameter values for a specific component and configuration.
@@ -1162,73 +1112,39 @@ class DataHandler:
                 # Get parameter types from list_adjustable_parameters
                 param_types = self.list_adjustable_parameters('stockpile')
                 # Return values with correct type annotations
-                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
+                       for k, v in values.items() if k in param_types}
             elif component_type == 'auction':
                 values = self.get_auction_data(config)
                 # Get parameter types from list_adjustable_parameters
                 param_types = self.list_adjustable_parameters('auction')
                 # First row contains parameter values
-                params = {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.iloc[0].items() if k in param_types}
+                params = {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
+                         for k, v in values.iloc[0].items() if k in param_types}
                 # Add series data
-                series = {k: {'value': values[k], 'type': 'series'} for k in values.columns if k not in param_types}
+                series = {k: {'value': values[k], 'type': 'series', 'category': 'input'} 
+                         for k in values.columns if k not in param_types}
                 return {**params, **series}
             elif component_type == 'industrial':
                 values = self.get_industrial_allocation(config)
                 # Get parameter types from list_adjustable_parameters
                 param_types = self.list_adjustable_parameters('industrial')
-                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
+                       for k, v in values.items() if k in param_types}
             elif component_type == 'forestry':
                 values = self.get_forestry_data(config)
                 # Get parameter types from list_adjustable_parameters
                 param_types = self.list_adjustable_parameters('forestry')
-                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
+                       for k, v in values.items() if k in param_types}
             elif component_type == 'demand':
                 values = self.get_demand_model(config)
                 # Get parameter types from list_adjustable_parameters
                 param_types = self.list_adjustable_parameters('demand')
-                return {k: {'value': v, 'type': param_types[k]['type']} for k, v in values.items()}
+                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
+                       for k, v in values.items() if k in param_types}
             else:
                 raise ValueError(f"Invalid component type: {component_type}")
         except Exception as e:
             print(f"Warning: Could not get values for {component_type} config '{config}': {e}")
             return {}
-
-    def list_available_series(self, component_type: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-        """
-        List all available data series for each component.
-        
-        Args:
-            component_type: Optional component type to filter results.
-            
-        Returns:
-            Dictionary mapping component names to their available data series.
-        """
-        series = {
-            'stockpile': {
-                'stockpile_balance': {'units': 'kt CO2-e', 'description': 'Total stockpile balance'},
-                'surplus_balance': {'units': 'kt CO2-e', 'description': 'Surplus balance'},
-                'non_surplus_balance': {'units': 'kt CO2-e', 'description': 'Non-surplus balance'}
-            },
-            'auction': {
-                'base_volume': {'units': 'kt CO2-e', 'description': 'Base auction volume'},
-                'ccr_volume_1': {'units': 'kt CO2-e', 'description': 'CCR1 volume'},
-                'ccr_volume_2': {'units': 'kt CO2-e', 'description': 'CCR2 volume'}
-            },
-            'industrial': {
-                'baseline_allocation': {'units': 'kt CO2-e', 'description': 'Baseline industrial allocation'},
-                'activity_adjustment': {'units': 'ratio', 'description': 'Activity level adjustment'}
-            },
-            'forestry': {
-                'forestry_tradeable': {'units': 'kt CO2-e', 'description': 'Tradeable forestry units'},
-                'forestry_held': {'units': 'kt CO2-e', 'description': 'Forestry units held'},
-                'forestry_surrender': {'units': 'kt CO2-e', 'description': 'Forestry units surrendered'}
-            },
-            'demand': {
-                'baseline_emissions': {'units': 'kt CO2-e', 'description': 'Baseline emissions'},
-                'price_adjusted_emissions': {'units': 'kt CO2-e', 'description': 'Price-adjusted emissions'}
-            }
-        }
-        
-        if component_type:
-            return series.get(component_type, {})
-        return series

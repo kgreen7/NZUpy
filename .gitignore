@@ -177,6 +177,7 @@ cython_debug/
 # Visual Studio Code
 .vscode/
 .cusorrules
+codebase.md 
 
 #Custom files
 *.html

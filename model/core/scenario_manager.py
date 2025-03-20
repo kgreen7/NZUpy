@@ -60,7 +60,7 @@ class ScenarioManager:
         """
         return self.model.data_handler.list_available_configs(component_type)
     
-    def use_config(self, scenario_index: int, component_type: str, config_name: str, model_number: Optional[int] = None) -> 'model.NZUpy':
+    def use_config(self, scenario_index: int, component_type: str, config_name: str, model_number: Optional[int] = None) -> 'model.core.base_model.NZUpy':
         """
         Set which input configuration a component should use within a specific model scenario.
         
@@ -106,7 +106,7 @@ class ScenarioManager:
         
         return self.model
     
-    def use_central_configs(self, scenario_index: int) -> 'model.NZUpy':
+    def use_central_configs(self, scenario_index: int) -> 'model.core.base_model.NZUpy':
         """
         Use central input configurations for all components in a specific model scenario.
         
@@ -143,7 +143,7 @@ class ScenarioManager:
         
         return self.model
 
-    def set_parameter(self, scenario_index: int, parameter_name: str, value: Any) -> 'model.NZUpy':
+    def set_parameter(self, scenario_index: int, parameter_name: str, value: Any) -> 'model.core.base_model.NZUpy':
         """
         Set a model parameter for a specific scenario run.
         
@@ -200,7 +200,7 @@ class ScenarioManager:
         
         return self.model
     
-    def define_scenario_type(self, scenario_type: str = 'Single') -> 'model.NZUpy':
+    def define_scenario_type(self, scenario_type: str = 'Single') -> 'model.core.base_model.NZUpy':
         """
         Define the type of scenario analysis to perform.
         
@@ -247,7 +247,7 @@ class ScenarioManager:
         print(f"Scenario type set to '{scenario_type}'")
         return self.model
 
-    def set_demand_model(self, model_number: int) -> 'model.NZUpy':
+    def set_demand_model(self, model_number: int) -> 'model.core.base_model.NZUpy':
         """
         Set which demand model number to use for all scenarios.
         
@@ -276,7 +276,7 @@ class ScenarioManager:
         print(f"Demand model set to {model_number}")
         return self.model
 
-    def configure_range_scenarios(self) -> 'model.NZUpy':
+    def configure_range_scenarios(self) -> 'model.core.base_model.NZUpy':
         """
         Configure scenarios for range/sensitivity analysis.
         
