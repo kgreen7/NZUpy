@@ -360,41 +360,57 @@ class ScenarioManager:
         # Get stockpile parameters with explicit hierarchy
         stockpile_params = {}
         
-        # Define parameter mappings (scenario_name: model_params_name)
-        param_mappings = {
-            'initial_stockpile': 'stockpile_start',
-            'initial_surplus': 'surplus_start',
-            'liquidity_factor': 'liquidity_factor',
-            'payback_period': 'payback_years',
-            'stockpile_usage_start_year': 'start_year',
-            'discount_rate': 'discount_rate'
-        }
-        
-        # Process each parameter following the hierarchy
-        for scenario_name, model_param_name in param_mappings.items():
-            # First try scenario config
-            value = getattr(scenario_config, scenario_name, None)
-            
-            # If not in scenario config, try model parameters
-            if value is None:
-                value = model_params.get(model_param_name)
-                if value is None:
-                    raise ValueError(f"Required parameter '{scenario_name}' not found in scenario config or model parameters")
+        try:
+            # First try to get parameters from the specified stockpile config
+            if scenario_config.stockpile:
+                config_params = self.model.data_handler.get_stockpile_parameters(scenario_config.stockpile)
+                stockpile_params = {
+                    'initial_stockpile': config_params['initial_stockpile'],
+                    'initial_surplus': config_params['initial_surplus'],
+                    'liquidity_factor': config_params['liquidity_factor'],
+                    'payback_period': config_params['payback_period'],
+                    'stockpile_usage_start_year': config_params['stockpile_usage_start_year'],
+                    'discount_rate': config_params['discount_rate'],
+                    'stockpile_reference_year': config_params.get('stockpile_reference_year', min(self.model.years) - 1)
+                }
+            else:
+                # Define parameter mappings (scenario_name: model_params_name)
+                param_mappings = {
+                    'initial_stockpile': 'stockpile_start',
+                    'initial_surplus': 'surplus_start',
+                    'liquidity_factor': 'liquidity_factor',
+                    'payback_period': 'payback_years',
+                    'stockpile_usage_start_year': 'start_year',
+                    'discount_rate': 'discount_rate'
+                }
                 
-                # Convert to appropriate type
-                if scenario_name in ['payback_period', 'stockpile_usage_start_year']:
-                    value = int(value)
-                else:
-                    value = float(value)
-            
-            stockpile_params[scenario_name] = value
-        
-        # Special case for reference year as it has a calculated default
-        stockpile_params['stockpile_reference_year'] = getattr(
-            scenario_config, 
-            'stockpile_reference_year', 
-            min(self.model.years) - 1  # Default to year before start year
-        )
+                # Process each parameter following the hierarchy
+                for scenario_name, model_param_name in param_mappings.items():
+                    # First try scenario config
+                    value = getattr(scenario_config, scenario_name, None)
+                    
+                    # If not in scenario config, try model parameters
+                    if value is None:
+                        value = model_params.get(model_param_name)
+                        if value is None:
+                            raise ValueError(f"Required parameter '{scenario_name}' not found in scenario config or model parameters")
+                        
+                        # Convert to appropriate type
+                        if scenario_name in ['payback_period', 'stockpile_usage_start_year']:
+                            value = int(value)
+                        else:
+                            value = float(value)
+                    
+                    stockpile_params[scenario_name] = value
+                
+                # Special case for reference year as it has a calculated default
+                stockpile_params['stockpile_reference_year'] = getattr(
+                    scenario_config, 
+                    'stockpile_reference_year', 
+                    min(self.model.years) - 1  # Default to year before start year
+                )
+        except Exception as e:
+            raise ValueError(f"Failed to load stockpile parameters: {e}")
         
         # Initialise components with proper error handling
         try:

@@ -64,9 +64,9 @@ class ModelRunner:
             scenario_results[scenario_name] = result
             
             # Print summary
-            print(f"Completed scenario {scenario_name}")
-            print(f"  Final price: ${result['final_price']:.2f}")
-            print(f"  Total gap: {result['total_gap']:,.0f}")
+            print(f"Completed NZUpy run for {scenario_name}")
+            #print(f"  Final price: ${result['final_price']:.2f}")
+            #print(f"  Total gap: {result['total_gap']:,.0f}")
         
         # Store all results
         self.model.results = scenario_results
