@@ -499,7 +499,8 @@ class DataHandler:
             DataFrame containing auction data for the specified configuration.
         """
         if not self.use_config_loading or config is None:
-            return self.auction_data
+            # Return a copy of the data to prevent SettingWithCopyWarning
+            return self.auction_data.copy() if hasattr(self, 'auction_data') else pd.DataFrame()
         
         if config not in self.auctions_data['Config'].unique():
             raise ValueError(f"Invalid auction config: {config}")

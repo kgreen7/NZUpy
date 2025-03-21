@@ -1,5 +1,5 @@
 parameter,value,description
-coarse_step,15,Coarse step size for optimisation
+coarse_step,10,Coarse step size for optimisation
 fine_step,1,Fine step size for optimisation
 max_rate,200,Maximum price change rate in thousandths
 max_iterations,5,

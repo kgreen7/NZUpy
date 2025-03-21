@@ -19,25 +19,18 @@ ConfigName = NewType('ConfigName', str)  # Name of a component input configurati
 
 class ScenarioManager:
     """
-    Manages model scenarios and their component configurations for the NZ ETS model.
+    Manages scenario configurations and parameter settings for the NZ ETS model.
     
-    This class handles:
-    - Defining different model scenarios (runs)
-    - Setting which input configuration to use for each component within a scenario
-    - Managing scenario-specific parameters
-    
-    Key concepts:
-    - A scenario represents a complete model run with specific settings
-    - Each component within a scenario uses a particular input configuration
-    - Configurations are predefined sets of inputs (e.g., 'central', 'high', 'low')
+    This class handles the creation and management of different scenarios,
+    including their configurations and parameter settings.
     """
     
-    def __init__(self, model):
+    def __init__(self, model: 'model.core.base_model.NZUpy'):
         """
         Initialise the scenario manager.
         
         Args:
-            model: The parent NZUpy instance
+            model: Reference to the parent NZUpy model instance
         """
         self.model = model
     
@@ -62,12 +55,12 @@ class ScenarioManager:
     
     def use_config(self, scenario_index: int, component_type: str, config_name: str, model_number: Optional[int] = None) -> 'model.core.base_model.NZUpy':
         """
-        Set which input configuration a component should use within a specific model scenario.
+        Use a specific configuration for a component in a scenario.
         
         Args:
-            scenario_index: Index of the model scenario to modify
+            scenario_index: Index of the scenario to modify
             component_type: Type of component to configure ('emissions', 'auction', etc.)
-            config_name: Name of the input configuration to use (e.g., 'central', 'high', 'low')
+            config_name: Name of the configuration to use
             model_number: Optional model number for demand models
             
         Returns:
@@ -75,34 +68,50 @@ class ScenarioManager:
         """
         # Validate that the model has been primed
         if not self.model._primed:
-            raise ValueError("Model must be primed before using configs. Call prime() first.")
+            raise ValueError("Model must be primed before using configurations. Call prime() first.")
         
         # Validate scenario index
         if scenario_index < 0 or scenario_index >= len(self.model.scenarios):
             raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.model.scenarios)-1}")
         
-        # Get the component configuration
-        component_config = self.model.component_configs[scenario_index]
+        # Get scenario name for display
+        scenario_name = self.model.scenarios[scenario_index]
         
-        # Set the configuration based on component type
-        if component_type == 'emissions':
-            component_config.emissions = config_name
+        # Handle different component types
+        if component_type == 'stockpile':
+            # Stockpile parameters are now handled by the component-specific set_parameter method
+            print(f"Note: Stockpile parameters should be set using set_parameter() with component='stockpile'")
+            return self.model
+            
+        elif component_type == 'emissions':
+            self.model.component_configs[scenario_index].emissions = config_name
+            print(f"Set emissions configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'auction':
-            component_config.auctions = config_name
+            self.model.component_configs[scenario_index].auctions = config_name
+            print(f"Set auction configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'industrial':
-            component_config.industrial_allocation = config_name
+            self.model.component_configs[scenario_index].industrial_allocation = config_name
+            print(f"Set industrial allocation configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'forestry':
-            component_config.forestry = config_name
+            self.model.component_configs[scenario_index].forestry = config_name
+            print(f"Set forestry configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'demand_model':
-            component_config.demand_sensitivity = config_name
             if model_number is not None:
-                component_config.demand_model_number = model_number
-        elif component_type == 'stockpile':
-            component_config.stockpile = config_name
+                if model_number not in [1, 2]:
+                    raise ValueError(f"Invalid demand model number: {model_number}. Valid options: 1, 2")
+                self.model.component_configs[scenario_index].demand_model_number = model_number
+                print(f"Set demand model number to {model_number} for scenario '{scenario_name}'")
+            
+            if config_name:
+                self.model.component_configs[scenario_index].demand_sensitivity = config_name
+                print(f"Set demand sensitivity to '{config_name}' for scenario '{scenario_name}'")
+            
         else:
-            raise ValueError(f"Invalid component type: {component_type}")
-        
-        print(f"Using {config_name} config for {component_type} in scenario {scenario_index} ({self.model.scenarios[scenario_index]})")
+            raise ValueError(f"Unknown component type: '{component_type}'. Valid options: emissions, auction, industrial, forestry, demand_model")
         
         return self.model
     
@@ -359,12 +368,14 @@ class ScenarioManager:
         
         # Get stockpile parameters with explicit hierarchy
         stockpile_params = {}
-        
+
         try:
-            # First try to get parameters from the specified stockpile config
+            # STEP 1: Load base parameters from config file or defaults
+            base_params = {}
             if scenario_config.stockpile:
+                # If a config is specified, load its parameters
                 config_params = self.model.data_handler.get_stockpile_parameters(scenario_config.stockpile)
-                stockpile_params = {
+                base_params = {
                     'initial_stockpile': config_params['initial_stockpile'],
                     'initial_surplus': config_params['initial_surplus'],
                     'liquidity_factor': config_params['liquidity_factor'],
@@ -374,7 +385,7 @@ class ScenarioManager:
                     'stockpile_reference_year': config_params.get('stockpile_reference_year', min(self.model.years) - 1)
                 }
             else:
-                # Define parameter mappings (scenario_name: model_params_name)
+                # If no config specified, use model parameters with appropriate mappings
                 param_mappings = {
                     'initial_stockpile': 'stockpile_start',
                     'initial_surplus': 'surplus_start',
@@ -384,31 +395,34 @@ class ScenarioManager:
                     'discount_rate': 'discount_rate'
                 }
                 
-                # Process each parameter following the hierarchy
                 for scenario_name, model_param_name in param_mappings.items():
-                    # First try scenario config
-                    value = getattr(scenario_config, scenario_name, None)
-                    
-                    # If not in scenario config, try model parameters
+                    value = model_params.get(model_param_name)
                     if value is None:
-                        value = model_params.get(model_param_name)
-                        if value is None:
-                            raise ValueError(f"Required parameter '{scenario_name}' not found in scenario config or model parameters")
+                        raise ValueError(f"Required parameter '{scenario_name}' not found in model parameters")
                         
-                        # Convert to appropriate type
-                        if scenario_name in ['payback_period', 'stockpile_usage_start_year']:
-                            value = int(value)
-                        else:
-                            value = float(value)
-                    
-                    stockpile_params[scenario_name] = value
+                    # Convert to appropriate type
+                    if scenario_name in ['payback_period', 'stockpile_usage_start_year']:
+                        base_params[scenario_name] = int(value)
+                    else:
+                        base_params[scenario_name] = float(value)
                 
-                # Special case for reference year as it has a calculated default
-                stockpile_params['stockpile_reference_year'] = getattr(
-                    scenario_config, 
-                    'stockpile_reference_year', 
-                    min(self.model.years) - 1  # Default to year before start year
-                )
+                # Set default reference year
+                base_params['stockpile_reference_year'] = min(self.model.years) - 1
+            
+            # STEP 2: Override with any explicitly set parameters
+            param_list = ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
+                        'discount_rate', 'payback_period', 'stockpile_usage_start_year',
+                        'stockpile_reference_year']
+            
+            for param in param_list:
+                custom_value = getattr(scenario_config, param, None)
+                if custom_value is not None:
+                    # Use the custom parameter instead of the config/default value
+                    base_params[param] = custom_value
+            
+            # Set final parameters
+            stockpile_params = base_params
+            
         except Exception as e:
             raise ValueError(f"Failed to load stockpile parameters: {e}")
         

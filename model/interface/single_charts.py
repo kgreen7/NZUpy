@@ -174,7 +174,16 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
             if isinstance(model.prices.columns, pd.MultiIndex):
                 # Extract real price data
                 real_price_data = model.prices[(scenario, 'carbon_price')]
-                # Filter by years if specified
+                
+                # Always filter to model's start and end years
+                mask = pd.Series(True, index=real_price_data.index)
+                if hasattr(model, 'start_year'):
+                    mask &= real_price_data.index >= model.start_year
+                if hasattr(model, 'end_year'):
+                    mask &= real_price_data.index <= model.end_year
+                real_price_data = real_price_data[mask]
+                
+                # Further filter by user-specified years if provided
                 if start_year is not None or end_year is not None:
                     mask = pd.Series(True, index=real_price_data.index)
                     if start_year is not None:
@@ -198,11 +207,18 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                 if data_handler is not None:
                     hist_real = data_handler.get_historical_data('carbon_price')
                     if hist_real is not None and not hist_real.empty:
-                        # Filter historical data
+                        # Filter historical data to model's start and end years
+                        if hasattr(model, 'start_year'):
+                            hist_real = hist_real[hist_real.index >= model.start_year]
+                        if hasattr(model, 'end_year'):
+                            hist_real = hist_real[hist_real.index <= model.end_year]
+                            
+                        # Further filter by user-specified years if provided
                         if start_year is not None:
                             hist_real = hist_real[hist_real.index >= start_year]
                         if end_year is not None:
                             hist_real = hist_real[hist_real.index <= end_year]
+                            
                         # Only use historical years not in model data
                         hist_real = hist_real[~hist_real.index.isin(real_price_data.index)]
                         
@@ -221,7 +237,16 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                     try:
                         # Get nominal price data
                         nominal_price_data = model.prices[(scenario, 'carbon_price_nominal')]
-                        # Filter by years if specified
+                        
+                        # Always filter to model's start and end years
+                        mask = pd.Series(True, index=nominal_price_data.index)
+                        if hasattr(model, 'start_year'):
+                            mask &= nominal_price_data.index >= model.start_year
+                        if hasattr(model, 'end_year'):
+                            mask &= nominal_price_data.index <= model.end_year
+                        nominal_price_data = nominal_price_data[mask]
+                        
+                        # Further filter by user-specified years if provided
                         if start_year is not None or end_year is not None:
                             mask = pd.Series(True, index=nominal_price_data.index)
                             if start_year is not None:
@@ -244,11 +269,18 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                         if data_handler is not None:
                             hist_nominal = data_handler.get_historical_data('carbon_price', nominal=True)
                             if hist_nominal is not None and not hist_nominal.empty:
-                                # Filter historical data
+                                # Filter historical data to model's start and end years
+                                if hasattr(model, 'start_year'):
+                                    hist_nominal = hist_nominal[hist_nominal.index >= model.start_year]
+                                if hasattr(model, 'end_year'):
+                                    hist_nominal = hist_nominal[hist_nominal.index <= model.end_year]
+                                    
+                                # Further filter by user-specified years if provided
                                 if start_year is not None:
                                     hist_nominal = hist_nominal[hist_nominal.index >= start_year]
                                 if end_year is not None:
                                     hist_nominal = hist_nominal[hist_nominal.index <= end_year]
+                                    
                                 # Only use historical years not in model data
                                 hist_nominal = hist_nominal[~hist_nominal.index.isin(nominal_price_data.index)]
                                 
@@ -284,7 +316,9 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
     # Update layout
     title_suffix = " (Real & Nominal)" if show_nominal else " (Real 2023 NZD)"
     
-    # If end_year not specified, use the maximum year from the model data
+    # Use model's start and end years if not specified
+    if start_year is None and hasattr(model, 'start_year'):
+        start_year = model.start_year
     if end_year is None and hasattr(model, 'end_year'):
         end_year = model.end_year
     

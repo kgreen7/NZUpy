@@ -43,7 +43,7 @@ class NZUpy:
         
         # Configure scenarios
         nze.use_central_configs(1)  # Set everything to central for scenario 1
-        nze.set_parameter(0, "initial_stockpile", 159902)
+        nze.set_parameter("initial_stockpile", 159902, 'stockpile', 1)  # Set stockpile parameter
         nze.use_config(0, 'emissions', 'CCC_CPR')
         
         # Run the model
@@ -293,25 +293,99 @@ class NZUpy:
         
         return self
     
-    def set_parameter(self, scenario_index: int, parameter_name: str, value: Any) -> 'NZUpy':
+    def set_parameter(self, parameter_name: str, value: Any, component: str, 
+                    scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
         """
-        Set a model parameter for a specific scenario.
+        Set a parameter value for a specific component and scenario.
         
         Args:
-            scenario_index: Index of the scenario to modify
-            parameter_name: Name of the parameter to set. Valid options:
-                - initial_stockpile: Initial stockpile value
-                - initial_surplus: Initial surplus value
-                - liquidity_factor: Liquidity factor (previously 'liquidity')
-                - discount_rate: Discount rate for calculations
-                - stockpile_usage_start_year: Year to start using stockpile
-                - payback_period: Payback period in years
-            value: Value to set for the parameter
-        
+            parameter_name: Name of the parameter to set
+            value: New value for the parameter
+            component: Component the parameter belongs to ('stockpile', 'auction', etc.)
+            scenario_index: Index of the scenario to modify (default: 0)
+            scenario_name: Name of the scenario to modify (overrides scenario_index if provided)
+            
         Returns:
             Self for method chaining
         """
-        return self.scenario_manager.set_parameter(scenario_index, parameter_name, value)
+        print(f"\nDEBUG: Setting parameter {parameter_name} to {value} for component {component} in scenario {scenario_index}")
+        if not self._primed:
+            raise ValueError("Model must be primed before setting parameters. Call prime() first.")
+        
+        # Resolve scenario_index if scenario_name provided
+        if scenario_name is not None:
+            if scenario_name not in self.scenarios:
+                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
+            scenario_index = self.scenarios.index(scenario_name)
+        
+        # Validate scenario_index
+        if scenario_index < 0 or scenario_index >= len(self.scenarios):
+            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
+        
+        # Get scenario config
+        component_config = self.component_configs[scenario_index]
+        
+        # Get scenario name for display
+        scenario_name = self.scenarios[scenario_index]
+        
+        # Handle different components
+        if component == 'stockpile':
+            print(f"DEBUG: Stockpile parameter {parameter_name} being set to {value}")
+            print(f"DEBUG: Current component_config values before setting:")
+            for attr in dir(component_config):
+                if not attr.startswith('_'):
+                    print(f"  {attr}: {getattr(component_config, attr)}")
+            
+            if parameter_name in ['liquidity_factor', 'discount_rate']:
+                print(f"DEBUG: Special stockpile parameter {parameter_name} detected")
+            
+            # Validate parameter name
+            valid_params = ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
+                            'discount_rate', 'payback_period', 'stockpile_usage_start_year', 
+                            'stockpile_reference_year']
+            
+            if parameter_name not in valid_params:
+                raise ValueError(f"Invalid stockpile parameter: '{parameter_name}'. Valid options: {', '.join(valid_params)}")
+            
+            # Validate parameter value based on type
+            if parameter_name in ['initial_stockpile', 'initial_surplus']:
+                if not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(f"{parameter_name} must be a non-negative number")
+            elif parameter_name in ['liquidity_factor', 'discount_rate']:
+                if not isinstance(value, (int, float)) or value < 0 or value > 1:
+                    raise ValueError(f"{parameter_name} must be a number between 0 and 1")
+            elif parameter_name == 'payback_period':
+                if not isinstance(value, int) or value <= 0:
+                    raise ValueError("payback_period must be a positive integer")
+            elif parameter_name == 'stockpile_usage_start_year':
+                if not isinstance(value, int) or value < self.config.start_year:
+                    raise ValueError(f"stockpile_usage_start_year must be at least {self.config.start_year}")
+            
+            # Set the parameter
+            setattr(component_config, parameter_name, value)
+            print(f"DEBUG: After setting {parameter_name}, component_config.{parameter_name} = {getattr(component_config, parameter_name)}")
+            
+            # Print confirmation
+            print(f"Set {component}.{parameter_name} = {value} for scenario '{scenario_name}'")
+            
+        elif component == 'demand_model':
+            # Special case for demand model number
+            if parameter_name == 'model_number':
+                if not isinstance(value, int) or value not in [1, 2]:
+                    raise ValueError("demand_model number must be 1 or 2")
+                component_config.demand_model_number = value
+                print(f"Set demand_model.model_number = {value} for scenario '{scenario_name}'")
+            else:
+                print(f"Cannot set parameter '{parameter_name}' directly for component 'demand_model'")
+        
+        else:
+            # For other components, explain that they need to use a different approach
+            print(f"Cannot directly set parameter '{parameter_name}' for component '{component}'.")
+            print(f"To modify {component} configuration, use:")
+            print(f"  - use_config() to select a different predefined configuration")
+            print(f"  - create custom datasets and load them with the data handler")
+        
+        return self
     
     def use_config(self, scenario_index: int, component_type: str, config_name: str, model_number: Optional[int] = None) -> 'NZUpy':
         """
@@ -1012,88 +1086,6 @@ class NZUpy:
         except Exception as e:
             print(f"Error retrieving series '{series_name}' from {component}: {str(e)}")
             return None
-
-    def set_parameter(self, parameter_name: str, value: Any, component: str, 
-                    scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
-        """
-        Set a parameter value for a specific component and scenario.
-        
-        Args:
-            parameter_name: Name of the parameter to set
-            value: New value for the parameter
-            component: Component the parameter belongs to
-            scenario_index: Index of the scenario to modify (default: 0)
-            scenario_name: Name of the scenario to modify (overrides scenario_index if provided)
-            
-        Returns:
-            Self for method chaining
-        """
-        if not self._primed:
-            raise ValueError("Model must be primed before setting parameters. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
-        # Validate scenario_index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario config
-        component_config = self.component_configs[scenario_index]
-        
-        # Get scenario name for display
-        scenario_name = self.scenarios[scenario_index]
-        
-        # Handle different components
-        if component == 'stockpile':
-            # Validate parameter name
-            valid_params = ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
-                            'discount_rate', 'payback_period', 'stockpile_usage_start_year']
-            
-            if parameter_name not in valid_params:
-                raise ValueError(f"Invalid stockpile parameter: '{parameter_name}'. Valid options: {', '.join(valid_params)}")
-            
-            # Validate parameter value based on type
-            if parameter_name in ['initial_stockpile', 'initial_surplus']:
-                if not isinstance(value, (int, float)) or value < 0:
-                    raise ValueError(f"{parameter_name} must be a non-negative number")
-            elif parameter_name in ['liquidity_factor', 'discount_rate']:
-                if not isinstance(value, (int, float)) or value < 0 or value > 1:
-                    raise ValueError(f"{parameter_name} must be a number between 0 and 1")
-            elif parameter_name == 'payback_period':
-                if not isinstance(value, int) or value <= 0:
-                    raise ValueError("payback_period must be a positive integer")
-            elif parameter_name == 'stockpile_usage_start_year':
-                if not isinstance(value, int) or value < self.config.start_year:
-                    raise ValueError(f"stockpile_usage_start_year must be at least {self.config.start_year}")
-            
-            # Set the parameter
-            setattr(component_config, parameter_name, value)
-            
-            # Print confirmation
-            print(f"Set {component}.{parameter_name} = {value} for scenario '{scenario_name}'")
-            
-        elif component == 'demand_model':
-            # Special case for demand model number
-            if parameter_name == 'model_number':
-                if not isinstance(value, int) or value not in [1, 2]:
-                    raise ValueError("demand_model number must be 1 or 2")
-                component_config.demand_model_number = value
-                print(f"Set demand_model.model_number = {value} for scenario '{scenario_name}'")
-            else:
-                print(f"Cannot set parameter '{parameter_name}' directly for component 'demand_model'")
-        
-        else:
-            # For other components, explain that they need to use a different approach
-            print(f"Cannot directly set parameter '{parameter_name}' for component '{component}'.")
-            print(f"To modify {component} configuration, use:")
-            print(f"  - use_config() to select a different predefined configuration")
-            print(f"  - create custom datasets and load them with the data handler")
-        
-        return self
 
     def set_series(self, series_name: str, data: pd.Series, component: str, 
                 scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
