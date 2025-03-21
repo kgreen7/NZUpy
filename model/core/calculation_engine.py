@@ -319,8 +319,25 @@ class CalculationEngine:
         Args:
             year: Year to calculate price for
         """
+        print(f"\nDEBUG: Calculating first projected year price for {year}")
+        
         # Get control parameter for this year
-        control_value = self.model.price_control_parameter.get(year, self.model.config.price_control_default)
+        control_value = self.model.price_control_parameter.get(year)
+        print(f"DEBUG: Initial control value from parameter: {control_value}")
+        
+        # If not found in parameter, try to get from CSV through data handler
+        if control_value is None and hasattr(self.model, 'data_handler'):
+            config_name = getattr(self.model.component_configs[self.model.scenarios.index(self.model.current_scenario)], 
+                                'price_control_config', 'central')
+            print(f"DEBUG: Attempting to load price control from config '{config_name}'")
+            control_value = self.model.data_handler.historical_manager.get_price_control(year, config=config_name)
+            print(f"DEBUG: Control value from CSV: {control_value}")
+        
+        if control_value is None:
+            print(f"DEBUG: No price control value found, using neutral value (1.0)")
+            control_value = 1.0
+        
+        print(f"DEBUG: Final control value being used: {control_value}")
         
         # Apply control parameter to price change
         if control_value >= 0:
@@ -341,11 +358,20 @@ class CalculationEngine:
         """
         prev_year = year - 1
         
-        # For years beyond end_year, use default price control
-        if year > self.model.config.end_year:
-            control_value = self.model.config.price_control_default
-        else:
-            control_value = self.model.price_control_parameter.get(year, self.model.config.price_control_default)
+        # Get the price control value for this year
+        control_value = self.model.price_control_parameter.get(year)
+        
+        # If not found in parameter, try to get from CSV through data handler
+        if control_value is None:
+            if hasattr(self.model, 'data_handler') and hasattr(self.model.data_handler, 'historical_manager'):
+                # Get value from central config in CSV
+                config_name = getattr(self.model, 'price_control_config', 'central')
+                control_value = self.model.data_handler.historical_manager.get_price_control(year, config=config_name)
+            
+            # If still None (no data available), use 1.0 but log a warning
+            if control_value is None:
+                print(f"Warning: No price control value found for year {year}. Using neutral value (1.0).")
+                control_value = 1.0
         
         # Apply control parameter to price change
         if control_value >= 0:

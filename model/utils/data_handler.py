@@ -717,54 +717,7 @@ class DataHandler:
                 raise ValueError(f"initial_surplus ({result['initial_surplus']}) cannot exceed initial_stockpile ({result['initial_stockpile']})")
         
         return result
-    
-    def get_stockpile_balance(self, config: Optional[str] = None) -> pd.DataFrame:
-        """
-        Get stockpile balance data for a specific configuration.
-        
-        Args:
-            config: The configuration name to load (e.g., 'central', 'high', 'low').
-                   If None, returns the default configuration.
-        
-        Returns:
-            DataFrame containing stockpile balance data for the specified configuration.
-        """
-        if not self.use_config_loading or config is None:
-            if not hasattr(self, 'stockpile_balance_data'):
-                self._load_stockpile_balance_data()
-            return self.stockpile_balance_data
-        
-        if not hasattr(self, 'stockpile_balance_data') or self.stockpile_balance_data.empty:
-            raise ValueError("Stockpile balance data not loaded")
-        
-        # Filter for the config and stockpile/surplus variables
-        stockpile_data = self.stockpile_balance_data[
-            (self.stockpile_balance_data['Config'].str.lower() == config.lower())
-        ]
-        
-        if stockpile_data.empty:
-            raise KeyError(f"No stockpile balance data found for config '{config}'")
-        
-        # Create DataFrame with stockpile and surplus columns
-        stockpile_df = pd.DataFrame(index=stockpile_data['Year'].unique())
-        stockpile_df.index = stockpile_df.index.astype(int)
-        stockpile_df.index.name = 'year'
-        
-        # Add stockpile and surplus columns
-        stockpile_values = stockpile_data[stockpile_data['Variable'] == 'stockpile']
-        surplus_values = stockpile_data[stockpile_data['Variable'] == 'surplus']
-        
-        stockpile_df['stockpile'] = pd.to_numeric(
-            stockpile_values.set_index('Year')['Value'],
-            errors='coerce'
-        )
-        stockpile_df['surplus'] = pd.to_numeric(
-            surplus_values.set_index('Year')['Value'],
-            errors='coerce'
-        )
-        
-        return stockpile_df
-    
+
     def get_forestry_data(self, config: Optional[str] = None) -> pd.DataFrame:
         """
         Get forestry data for a specific configuration.
@@ -801,38 +754,7 @@ class DataHandler:
         result_df.index.name = 'year'
         
         return result_df
-    
-    def get_forestry_removals(self, config: Optional[str] = None) -> pd.DataFrame:
-        """
-        Get forestry removals data for a specific configuration.
-        
-        Args:
-            config: The configuration name to load (e.g., 'central', 'high', 'low').
-                   If None, returns the default configuration.
-        
-        Returns:
-            DataFrame with forestry removals data containing Year, Variable, and Value columns
-        """
-        if not self.use_config_loading or config is None:
-            # For standard loading, convert to expected format
-            forest_data = self.get_forestry_data()
-            return pd.DataFrame({
-                'Year': forest_data.index.tolist(),
-                'Value': forest_data['forestry_supply'].tolist()
-            })
 
-        if self.removals_data is None or self.removals_data.empty:
-            raise ValueError("Removals data not loaded")
-        
-        # Filter for scenario and return relevant columns
-        forest_data = self.removals_data[
-            self.removals_data['Config'].str.lower() == config
-        ]
-        
-        if forest_data.empty:
-            raise KeyError(f"No forestry data found for config '{config}'")
-        
-        return forest_data[['Year', 'Variable', 'Value']]
     
     def get_forestry_variables(self, config: Optional[str] = None) -> pd.DataFrame:
         """

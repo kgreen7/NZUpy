@@ -69,8 +69,6 @@ class ModelConfig:
     
     # Price control parameters
     price_control_values: Dict[Year, float] = field(default_factory=dict)
-    price_control_default: float = 1.0     # Default multiplier applied to all future years
-    
     # Component configurations
     supply: SupplyConfig = field(default_factory=SupplyConfig)
     demand: DemandConfig = field(default_factory=DemandConfig)

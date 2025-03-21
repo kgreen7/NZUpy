@@ -188,16 +188,16 @@ class NZUpy:
     
     def _initialise_price_control(self):
         """Initialise price control parameter from data."""
-        # Create default price control series
-        self.price_control_parameter = pd.Series(
-            index=self.years, 
-            data=self.config.price_control_default
-        )
+        # Create empty price control series
+        self.price_control_parameter = pd.Series(index=self.years)
         
-        # Try to get price control data from historical data manager
+        # Get configuration name
+        config_name = getattr(self, 'price_control_config', 'central')
+        
+        # Load values from the CSV via historical data manager
         if hasattr(self.data_handler, 'historical_manager'):
             for year in self.years:
-                price_control = self.data_handler.get_price_control(year)
+                price_control = self.data_handler.historical_manager.get_price_control(year, config=config_name)
                 if price_control is not None:
                     self.price_control_parameter[year] = price_control
         
@@ -231,9 +231,6 @@ class NZUpy:
         
         # Mark scenarios as defined
         self._scenarios_defined = True
-        
-        # Print informative message
-        print(f"Defined {len(scenario_names)} scenarios: {', '.join(scenario_names)}")
         
         return self
     
@@ -614,15 +611,6 @@ class NZUpy:
                     if year in self.price_control_parameter.index}
         
         self.set_price_control(year_values)
-
-    def get_price_control_parameters(self) -> pd.Series:
-        """
-        Get the current price control parameters.
-        
-        Returns:
-            Series of price control parameters indexed by year.
-        """
-        return self.price_control_parameter.copy()
     
     def run_scenarios(self, scenarios: List[str]) -> Dict[str, Dict[str, Any]]:
         """
@@ -1379,3 +1367,39 @@ class NZUpy:
         except Exception as e:
             print(f"Error retrieving series list for {component}: {str(e)}")
             return []
+
+    def use_price_control_config(self, config_name: str, scenario_index: int = None, scenario_name: str = None):
+        """
+        Load a specific price control configuration.
+        
+        Args:
+            config_name: The configuration name to load (e.g., 'central', 'scarcity_then_surplus')
+            scenario_index: Index of the scenario to apply this to (optional)
+            scenario_name: Name of the scenario to apply this to (optional)
+        
+        Returns:
+            Self for method chaining
+        """
+        print(f"\nDEBUG: Attempting to set price control config '{config_name}'")
+        print(f"DEBUG: Target scenario_index: {scenario_index}, scenario_name: {scenario_name}")
+        
+        # Determine which scenario to use
+        if scenario_index is not None:
+            if scenario_index < 0 or scenario_index >= len(self.scenarios):
+                raise ValueError(f"Invalid scenario_index: {scenario_index}")
+            scenario = self.scenarios[scenario_index]
+            print(f"DEBUG: Using scenario '{scenario}' from index {scenario_index}")
+        elif scenario_name is not None:
+            if scenario_name not in self.scenarios:
+                raise ValueError(f"Unknown scenario_name: {scenario_name}")
+            scenario = scenario_name
+            print(f"DEBUG: Using scenario '{scenario}' from name")
+        else:
+            scenario = self.current_scenario
+            print(f"DEBUG: Using current scenario '{scenario}'")
+        
+        # Store configuration name in scenario manager
+        self.scenario_manager.set_price_control_config(scenario, config_name)
+        
+        print(f"DEBUG: Price control config set to '{config_name}' for scenario '{scenario}'")
+        return self

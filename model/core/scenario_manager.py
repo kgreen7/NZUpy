@@ -537,3 +537,21 @@ class ScenarioManager:
         self.model.config.liquidity_factor = float(stockpile_params['liquidity_factor'])
         self.model.config.initial_stockpile = float(stockpile_params['initial_stockpile'])
         self.model.config.initial_surplus = float(stockpile_params['initial_surplus'])
+
+    def set_price_control_config(self, scenario_name, config_name):
+        """Set price control configuration for a specific scenario."""
+        print(f"\nDEBUG: ScenarioManager setting price control config")
+        print(f"DEBUG: Scenario: {scenario_name}")
+        print(f"DEBUG: Config: {config_name}")
+        
+        # Get the scenario index
+        scenario_index = self.model.scenarios.index(scenario_name)
+        print(f"DEBUG: Scenario index: {scenario_index}")
+        
+        # Store the config name in the scenario's component config
+        self.model.component_configs[scenario_index].price_control_config = config_name
+        print(f"DEBUG: Stored price control config in component_configs[{scenario_index}]")
+        
+        # Verify the setting
+        stored_config = getattr(self.model.component_configs[scenario_index], 'price_control_config', None)
+        print(f"DEBUG: Verified stored config: {stored_config}")
