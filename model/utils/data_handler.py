@@ -1033,17 +1033,18 @@ class DataHandler:
             print(f"Warning: Error getting configs for {component_type}: {e}")
             return ['central']  # Default to central on error
 
-    def get_historical_data(self, variable: str) -> Optional[pd.Series]:
+    def get_historical_data(self, variable: str, nominal: bool = False) -> Optional[pd.Series]:
         """
         Get historical data for a variable if available.
         
         Args:
             variable: Name of the variable to get historical data for
+            nominal: Whether to return nominal prices (only applies to price data)
             
         Returns:
             Series with historical data, or None if not available
         """
-        return self.historical_manager.get_historical_data(variable)
+        return self.historical_manager.get_historical_data(variable, nominal=nominal)
     
     def get_carbon_price(self, year: int, config: str = 'central') -> Optional[float]:
         """

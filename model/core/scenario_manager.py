@@ -79,9 +79,10 @@ class ScenarioManager:
         
         # Handle different component types
         if component_type == 'stockpile':
-            # Stockpile parameters are now handled by the component-specific set_parameter method
-            print(f"Note: Stockpile parameters should be set using set_parameter() with component='stockpile'")
-            return self.model
+            # Set the stockpile configuration just like other components
+            self.model.component_configs[scenario_index].stockpile = config_name
+            print(f"Using {config_name} config for stockpile in scenario {scenario_index} ({scenario_name})")
+            
             
         elif component_type == 'emissions':
             self.model.component_configs[scenario_index].emissions = config_name
