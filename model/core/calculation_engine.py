@@ -313,75 +313,82 @@ class CalculationEngine:
                 self._apply_price_constraints(year, long_term_min, long_term_max)
 
     def _calculate_first_projected_year_price(self, year: int):
-        """
-        Calculate price for the first year after historical data.
-        
-        Args:
-            year: Year to calculate price for
-        """
-        print(f"\nDEBUG: Calculating first projected year price for {year}")
-        
-        # Get control parameter for this year
-        control_value = self.model.price_control_parameter.get(year)
-        print(f"DEBUG: Initial control value from parameter: {control_value}")
-        
-        # If not found in parameter, try to get from CSV through data handler
-        if control_value is None and hasattr(self.model, 'data_handler'):
-            config_name = getattr(self.model.component_configs[self.model.scenarios.index(self.model.current_scenario)], 
-                                'price_control_config', 'central')
-            print(f"DEBUG: Attempting to load price control from config '{config_name}'")
-            control_value = self.model.data_handler.historical_manager.get_price_control(year, config=config_name)
-            print(f"DEBUG: Control value from CSV: {control_value}")
-        
-        if control_value is None:
-            print(f"DEBUG: No price control value found, using neutral value (1.0)")
-            control_value = 1.0
-        
-        print(f"DEBUG: Final control value being used: {control_value}")
-        
-        # Apply control parameter to price change
-        if control_value >= 0:
-            # Positive control: apply standard growth
-            growth_factor = 1 + (self.model.price_change_rate * control_value)
-            self.model.prices[year] = self.model.last_historical_price * growth_factor
+        """Calculate price for the first projected year."""
+        # Get the current scenario's component config
+        # If no scenarios defined yet, use default 'central' config
+        if not hasattr(self.model, 'scenarios') or not self.model.scenarios:
+            price_control_config = 'central'
         else:
-            # Negative control: invert the change direction
-            reduction_factor = 1 - (self.model.price_change_rate * abs(control_value))
-            self.model.prices[year] = self.model.last_historical_price * reduction_factor
+            # Get current scenario or default to first scenario
+            current_scenario = getattr(self.model, 'current_scenario', None)
+            if not current_scenario:
+                current_scenario = self.model.scenarios[0]
+            
+            scenario_index = self.model.scenarios.index(current_scenario)
+            component_config = self.model.component_configs[scenario_index]
+            price_control_config = getattr(component_config, 'price_control_config', 'central')
+        
+        # Get control value from model's price control parameter
+        control_value = self.model.price_control_parameter.get(year, 1.0)
+        
+        # If no control value found, try to get it from CSV using price control config
+        if control_value == 1.0 and hasattr(self.model.data_handler, 'historical_manager'):
+            control_value = self.model.data_handler.historical_manager.get_price_control(year, config=price_control_config)
+            if control_value is not None:
+                self.model.price_control_parameter[year] = control_value
+        
+        # Calculate price change based on control value
+        if control_value > 0:
+            # Normal price change
+            price_change = self.model.price_change_rate * control_value
+        elif control_value < 0:
+            # Inverted price change
+            price_change = -self.model.price_change_rate * abs(control_value)
+        else:
+            # No price change
+            price_change = 0
+        
+        # Calculate price
+        self.model.prices[year] = self.model.prices[year - 1] * (1 + price_change)
 
     def _calculate_subsequent_year_price(self, year: int):
-        """
-        Calculate price for years after the first projected year.
-        
-        Args:
-            year: Year to calculate price for
-        """
-        prev_year = year - 1
-        
-        # Get the price control value for this year
-        control_value = self.model.price_control_parameter.get(year)
-        
-        # If not found in parameter, try to get from CSV through data handler
-        if control_value is None:
-            if hasattr(self.model, 'data_handler') and hasattr(self.model.data_handler, 'historical_manager'):
-                # Get value from central config in CSV
-                config_name = getattr(self.model, 'price_control_config', 'central')
-                control_value = self.model.data_handler.historical_manager.get_price_control(year, config=config_name)
-            
-            # If still None (no data available), use 1.0 but log a warning
-            if control_value is None:
-                print(f"Warning: No price control value found for year {year}. Using neutral value (1.0).")
-                control_value = 1.0
-        
-        # Apply control parameter to price change
-        if control_value >= 0:
-            # Positive control: apply standard growth
-            growth_factor = 1 + (self.model.price_change_rate * control_value)
-            self.model.prices[year] = self.model.prices[prev_year] * growth_factor
+        """Calculate price for subsequent projected years."""
+        # Get the current scenario's component config
+        # If no scenarios defined yet, use default 'central' config
+        if not hasattr(self.model, 'scenarios') or not self.model.scenarios:
+            price_control_config = 'central'
         else:
-            # Negative control: invert the change direction
-            reduction_factor = 1 - (self.model.price_change_rate * abs(control_value))
-            self.model.prices[year] = self.model.prices[prev_year] * reduction_factor
+            # Get current scenario or default to first scenario
+            current_scenario = getattr(self.model, 'current_scenario', None)
+            if not current_scenario:
+                current_scenario = self.model.scenarios[0]
+            
+            scenario_index = self.model.scenarios.index(current_scenario)
+            component_config = self.model.component_configs[scenario_index]
+            price_control_config = getattr(component_config, 'price_control_config', 'central')
+        
+        # Get control value from model's price control parameter
+        control_value = self.model.price_control_parameter.get(year, 1.0)
+        
+        # If no control value found, try to get it from CSV using price control config
+        if control_value == 1.0 and hasattr(self.model.data_handler, 'historical_manager'):
+            control_value = self.model.data_handler.historical_manager.get_price_control(year, config=price_control_config)
+            if control_value is not None:
+                self.model.price_control_parameter[year] = control_value
+        
+        # Calculate price change based on control value
+        if control_value > 0:
+            # Normal price change
+            price_change = self.model.price_change_rate * control_value
+        elif control_value < 0:
+            # Inverted price change
+            price_change = -self.model.price_change_rate * abs(control_value)
+        else:
+            # No price change
+            price_change = 0
+        
+        # Calculate price
+        self.model.prices[year] = self.model.prices[year - 1] * (1 + price_change)
 
     def _apply_price_constraints(self, year: int, min_price: Optional[float], max_price: Optional[float]):
         """

@@ -191,13 +191,24 @@ class NZUpy:
         # Create empty price control series
         self.price_control_parameter = pd.Series(index=self.years)
         
-        # Get configuration name
-        config_name = getattr(self, 'price_control_config', 'central')
+        # Get the current scenario's component config
+        # If no scenarios defined yet, use default 'central' config
+        if not hasattr(self, 'scenarios') or not self.scenarios:
+            price_control_config = 'central'
+        else:
+            # Get current scenario or default to first scenario
+            current_scenario = getattr(self, 'current_scenario', None)
+            if not current_scenario:
+                current_scenario = self.scenarios[0]
+            
+            scenario_index = self.scenarios.index(current_scenario)
+            component_config = self.component_configs[scenario_index]
+            price_control_config = getattr(component_config, 'price_control_config', 'central')
         
         # Load values from the CSV via historical data manager
         if hasattr(self.data_handler, 'historical_manager'):
             for year in self.years:
-                price_control = self.data_handler.historical_manager.get_price_control(year, config=config_name)
+                price_control = self.data_handler.historical_manager.get_price_control(year, config=price_control_config)
                 if price_control is not None:
                     self.price_control_parameter[year] = price_control
         
