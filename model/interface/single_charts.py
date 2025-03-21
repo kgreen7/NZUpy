@@ -151,7 +151,7 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
         model: NZUpy instance
         scenario: Optional scenario name (defaults to first scenario)
         start_year: Optional start year for chart
-        end_year: Optional end year for chart
+        end_year: Optional end year for chart (defaults to model.end_year if not specified)
         show_nominal: Whether to show nominal prices in addition to real prices
         
     Returns:
@@ -165,6 +165,13 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
     if scenario is None and hasattr(model, 'scenarios') and model.scenarios:
         scenario = model.scenarios[0]
     
+    # If end_year not specified, use the model's end_year attribute
+    if end_year is None:
+        if hasattr(model, 'end_year'):
+            end_year = model.end_year
+        elif hasattr(model, 'years') and len(model.years) > 0:
+            end_year = max(model.years)
+    
     # Create figure
     fig = go.Figure()
     
@@ -174,16 +181,7 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
             if isinstance(model.prices.columns, pd.MultiIndex):
                 # Extract real price data
                 real_price_data = model.prices[(scenario, 'carbon_price')]
-                
-                # Always filter to model's start and end years
-                mask = pd.Series(True, index=real_price_data.index)
-                if hasattr(model, 'start_year'):
-                    mask &= real_price_data.index >= model.start_year
-                if hasattr(model, 'end_year'):
-                    mask &= real_price_data.index <= model.end_year
-                real_price_data = real_price_data[mask]
-                
-                # Further filter by user-specified years if provided
+                # Filter by years if specified
                 if start_year is not None or end_year is not None:
                     mask = pd.Series(True, index=real_price_data.index)
                     if start_year is not None:
@@ -207,18 +205,11 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                 if data_handler is not None:
                     hist_real = data_handler.get_historical_data('carbon_price')
                     if hist_real is not None and not hist_real.empty:
-                        # Filter historical data to model's start and end years
-                        if hasattr(model, 'start_year'):
-                            hist_real = hist_real[hist_real.index >= model.start_year]
-                        if hasattr(model, 'end_year'):
-                            hist_real = hist_real[hist_real.index <= model.end_year]
-                            
-                        # Further filter by user-specified years if provided
+                        # Filter historical data
                         if start_year is not None:
                             hist_real = hist_real[hist_real.index >= start_year]
                         if end_year is not None:
                             hist_real = hist_real[hist_real.index <= end_year]
-                            
                         # Only use historical years not in model data
                         hist_real = hist_real[~hist_real.index.isin(real_price_data.index)]
                         
@@ -237,16 +228,7 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                     try:
                         # Get nominal price data
                         nominal_price_data = model.prices[(scenario, 'carbon_price_nominal')]
-                        
-                        # Always filter to model's start and end years
-                        mask = pd.Series(True, index=nominal_price_data.index)
-                        if hasattr(model, 'start_year'):
-                            mask &= nominal_price_data.index >= model.start_year
-                        if hasattr(model, 'end_year'):
-                            mask &= nominal_price_data.index <= model.end_year
-                        nominal_price_data = nominal_price_data[mask]
-                        
-                        # Further filter by user-specified years if provided
+                        # Filter by years if specified
                         if start_year is not None or end_year is not None:
                             mask = pd.Series(True, index=nominal_price_data.index)
                             if start_year is not None:
@@ -269,18 +251,11 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                         if data_handler is not None:
                             hist_nominal = data_handler.get_historical_data('carbon_price', nominal=True)
                             if hist_nominal is not None and not hist_nominal.empty:
-                                # Filter historical data to model's start and end years
-                                if hasattr(model, 'start_year'):
-                                    hist_nominal = hist_nominal[hist_nominal.index >= model.start_year]
-                                if hasattr(model, 'end_year'):
-                                    hist_nominal = hist_nominal[hist_nominal.index <= model.end_year]
-                                    
-                                # Further filter by user-specified years if provided
+                                # Filter historical data
                                 if start_year is not None:
                                     hist_nominal = hist_nominal[hist_nominal.index >= start_year]
                                 if end_year is not None:
                                     hist_nominal = hist_nominal[hist_nominal.index <= end_year]
-                                    
                                 # Only use historical years not in model data
                                 hist_nominal = hist_nominal[~hist_nominal.index.isin(nominal_price_data.index)]
                                 
@@ -315,12 +290,6 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
     
     # Update layout
     title_suffix = " (Real & Nominal)" if show_nominal else " (Real 2023 NZD)"
-    
-    # Use model's start and end years if not specified
-    if start_year is None and hasattr(model, 'start_year'):
-        start_year = model.start_year
-    if end_year is None and hasattr(model, 'end_year'):
-        end_year = model.end_year
     
     fig.update_layout(
         title=f"Carbon Price Projection{title_suffix}",
@@ -736,7 +705,7 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                         mode='lines',
                         line=dict(width=1, color=NZUPY_CHART_STYLE['colors']['diverging_09_bold']),
                         stackgroup='one',
-                        fillcolor=NZUPY_CHART_STYLE['colors']['diverging_09_transparent'],
+                        fillcolor=NZUPY_CHART_STYLE['colors']['forestry_transparent'],
                         hovertemplate="Year: %{x}<br>Surplus Balance: %{y:.2f} kt CO₂-e<extra></extra>"
                     ))
                     
@@ -1048,7 +1017,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
                 x=base_supplied.index,
                 y=base_supplied.values,
                 name="Base Auction Volume",
-                marker_color=DIVERGING_COLORS[1],
+                marker_color=NZUPY_CHART_STYLE["colors"]["auction_volume_dark"],
                 opacity=0.7,
                 hovertemplate="Year: %{x}<br>Base Volume: %{y:.2f} kt CO₂-e<extra></extra>"
             ))
@@ -1057,7 +1026,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
                 x=ccr1_supplied.index,
                 y=ccr1_supplied.values,
                 name="CCR1 Volume",
-                marker_color=DIVERGING_COLORS[2],
+                marker_color=NZUPY_CHART_STYLE["colors"]["auction_volume_medium"],
                 opacity=0.7,
                 hovertemplate="Year: %{x}<br>CCR1 Volume: %{y:.2f} kt CO₂-e<extra></extra>"
             ))
@@ -1066,7 +1035,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
                 x=ccr2_supplied.index,
                 y=ccr2_supplied.values,
                 name="CCR2 Volume",
-                marker_color=DIVERGING_COLORS[4],
+                marker_color=NZUPY_CHART_STYLE["colors"]["auction_volume_light"],
                 opacity=0.7,
                 hovertemplate="Year: %{x}<br>CCR2 Volume: %{y:.2f} kt CO₂-e<extra></extra>"
             ))

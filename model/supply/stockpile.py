@@ -276,13 +276,11 @@ class StockpileSupply:
                 if non_surplus_available and shortfall > 0:
                     # Calculate available non-surplus using previous year's balance
                     liquid_non_surplus = prev_non_surplus * self.liquidity_factor
-                    print(f"DEBUG: Year {year} - Liquid non-surplus: {liquid_non_surplus:.2f} (from {prev_non_surplus:.2f} * {self.liquidity_factor})")
                     proposed_non_surplus_used = min(shortfall, liquid_non_surplus)
                     
                     # Validate against current non-surplus balance
                     current_non_surplus = max(0, self.stockpile_balance[year] - self.surplus_balance[year])
                     if proposed_non_surplus_used > current_non_surplus:
-                        print(f"Warning: Year {year}: Attempted to use {proposed_non_surplus_used} from non-surplus, but only {current_non_surplus} available.")
                         non_surplus_used = min(proposed_non_surplus_used, current_non_surplus)
                     else:
                         non_surplus_used = proposed_non_surplus_used
