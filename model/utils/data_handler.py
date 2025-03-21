@@ -688,6 +688,10 @@ class DataHandler:
                 if param not in result:
                     raise ValueError(f"Unknown parameter in overrides: {param}")
                 
+                # Skip None values - they mean "don't override this parameter"
+                if value is None:
+                    continue
+                
                 # Validate parameter values
                 if param == 'liquidity_factor' and not 0 <= value <= 1:
                     raise ValueError(f"liquidity_factor must be between 0 and 1, got {value}")
@@ -697,18 +701,20 @@ class DataHandler:
                     raise ValueError(f"initial_stockpile cannot be negative, got {value}")
                 elif param == 'initial_surplus' and value < 0:
                     raise ValueError(f"initial_surplus cannot be negative, got {value}")
-                elif param == 'initial_surplus' and value > result['initial_stockpile']:
-                    raise ValueError(f"initial_surplus ({value}) cannot exceed initial_stockpile ({result['initial_stockpile']})")
                 elif param == 'payback_period' and value <= 0:
                     raise ValueError(f"payback_period must be positive, got {value}")
                 elif param == 'stockpile_usage_start_year' and value < start_year:
                     raise ValueError(f"stockpile_usage_start_year cannot be before model start year {start_year}")
                 
-                # Convert to appropriate type
+                # Convert to appropriate type and update result
                 if param in ['payback_period', 'stockpile_usage_start_year', 'stockpile_reference_year']:
                     result[param] = int(value)
                 else:
                     result[param] = float(value)
+            
+            # Now that all parameters have been updated, check inter-parameter relationships
+            if result['initial_surplus'] > result['initial_stockpile']:
+                raise ValueError(f"initial_surplus ({result['initial_surplus']}) cannot exceed initial_stockpile ({result['initial_stockpile']})")
         
         return result
     

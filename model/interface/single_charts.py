@@ -1055,7 +1055,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
             fig.update_layout(
                 title=f"Auction Volume and Revenue - {scenario}",
                 xaxis_title="Year",
-                yaxis_title="Auction Volume (kt CO₂-e)",
+                yaxis_title="Auction volume (000s) (kt CO₂-e)",
                 yaxis=dict(
                     rangemode='nonnegative',
                     range=[0, None]  # Set minimum to 0, let max auto-scale
