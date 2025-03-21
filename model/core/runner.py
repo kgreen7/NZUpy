@@ -49,7 +49,8 @@ class ModelRunner:
         
         # Run each scenario
         for i, scenario_name in enumerate(self.model.scenarios):
-            print(f"\nRunning scenario {i}: {scenario_name}")
+            print(f"\nDEBUG: Starting scenario {i}: {scenario_name}")
+            print(f"DEBUG: Component config price_control_config: {getattr(self.model.component_configs[i], 'price_control_config', 'Not set')}")
             
             # Get the component configuration for this scenario
             component_config = self.model.component_configs[i]
@@ -58,15 +59,14 @@ class ModelRunner:
             self.model.scenario_manager._initialise_scenario_components(component_config)
             
             # Run optimisation for this scenario
-            result = self._run_scenario_optimisation()
+            result = self._run_scenario(i)
             
             # Store results
             scenario_results[scenario_name] = result
             
             # Print summary
-            print(f"Completed NZUpy run for {scenario_name}")
-            #print(f"  Final price: ${result['final_price']:.2f}")
-            #print(f"  Total gap: {result['total_gap']:,.0f}")
+            print(f"DEBUG: Completed scenario {i}: {scenario_name}")
+            print(f"DEBUG: Final price_control_config: {getattr(self.model.component_configs[i], 'price_control_config', 'Not set')}")
         
         # Store all results
         self.model.results = scenario_results
@@ -166,6 +166,12 @@ class ModelRunner:
         if price_change_rate is not None:
             self.model.price_change_rate = price_change_rate
         
+        # Initialize price control for this scenario
+        self.model._initialise_price_control()
+        
+        # CRITICAL FIX: Explicitly calculate prices WITH price controls
+        self.model.calculation_engine._calculate_initial_prices()
+        
         # Set up the model run
         run_data = self._initialise_model_run()
         
@@ -178,6 +184,19 @@ class ModelRunner:
         # Calculate final gap
         gap = self.model.calculation_engine._calculate_total_gap()
         
+        # IMPORTANT: Verify the prices in the model include the price control effects
+        if is_final_run:
+            print("\nDEBUG: Final price curve with controls:")
+            debug_years = [2024, 2030, 2040, 2050]
+            for year in debug_years:
+                control = self.model.price_control_parameter[year]
+                price = self.model.prices[year]
+                print(f"  Year {year}: Control={control}, Price=${price:.2f}")
+        print("\nDEBUG FINAL MODEL RESULTS before compilation:")
+        print(f"Prices at Year 2024: ${self.model.prices[2024]:.2f}")
+        print(f"Prices at Year 2030: ${self.model.prices[2030]:.2f}")
+        print(f"Prices at Year 2040: ${self.model.prices[2040]:.2f}")
+        print(f"Prices at Year 2050: ${self.model.prices[2050]:.2f}")
         # Compile and return results
         model_results = self._compile_model_results(gap, run_data['iteration'])
         
@@ -229,6 +248,12 @@ class ModelRunner:
             
             # Update stockpile usage for next iteration
             run_data['stockpile_usage'] = new_stockpile_usage
+        
+        # IMPORTANT: After last iteration, recalculate prices once more
+        # to ensure price controls are properly applied
+        if run_data['iteration'] >= run_data['max_iterations'] or run_data['converged']:
+            # Force recalculation of prices with controls
+            self.model.calculation_engine._calculate_initial_prices()
     
     def _perform_single_iteration(self) -> Tuple[Dict[str, pd.Series], pd.Series, pd.Series]:
         """
@@ -347,11 +372,14 @@ class ModelRunner:
                 stockpile_results['payback_units'] = payback_units
                 stockpile_results['net_borrowing'] = payback_units - stockpile_results['borrowed_units']
         
+        # CRITICAL: Ensure the prices in results are the controlled prices
+        controlled_prices = self.model.prices.copy()
+        
         # Compile results dictionary
         return {
             'price_change_rate': self.model.price_change_rate,
             'gap': gap,
-            'prices': self.model.prices.copy(),
+            'prices': controlled_prices,  # This will be used in charts
             'unmodified_prices': getattr(self.model, 'unmodified_prices', self.model.prices.copy()),
             'supply': self.model.supply.copy(),
             'demand': self.model.demand.copy(),
@@ -415,16 +443,14 @@ class ModelRunner:
         self.model.emissions.set_scenario(original_scenario)
         
         return scenario_results
-    
+
+
     def _run_scenario_optimisation(self) -> Dict[str, Any]:
         """
         Run optimisation for the current scenario configuration.
         
-        This method coordinates the optimisation process to find the optimal
-        price change rate, calculates the resulting gap, and compiles the results.
-        
         Returns:
-            Dictionary with comprehensive results from optimisation
+            Dict containing optimisation and model results.
         """
         # Set up and run the optimiser
         optimiser = self._setup_optimiser()
@@ -456,9 +482,9 @@ class ModelRunner:
         )
     
     def _compile_optimisation_results(self, 
-                                     optimisation_results: Dict[str, Any],
-                                     gap: float,
-                                     model_results: Dict[str, Any]) -> Dict[str, Any]:
+                                    optimisation_results: Dict[str, Any],
+                                    gap: float,
+                                    model_results: Dict[str, Any]) -> Dict[str, Any]:
         """
         Compile comprehensive results from optimisation and model run.
         
@@ -477,16 +503,17 @@ class ModelRunner:
         results = {
             'price_change_rate': optimal_rate,
             'total_gap': gap,
-            'prices': self.model.prices.copy(),
-            'supply': self.model.supply.copy(),
-            'demand': self.model.demand.copy(),
-            'final_price': self.model.prices[self.model.config.end_year],
+            'prices': model_results['prices'],  # Use controlled prices from model_results
+            'unmodified_prices': model_results.get('unmodified_prices', model_results['prices']),
+            'supply': model_results['supply'],
+            'demand': model_results['demand'],
+            'final_price': model_results['prices'][self.model.config.end_year],
             'convergence_success': not optimisation_results.get('at_boundary', False),
             'optimisation_message': ''
         }
         
-        # Add detailed component results for advanced analysis
-        results['model'] = self._compile_component_results()
+        # Add detailed component results from model_results
+        results['model'] = model_results
         
         return results
     
@@ -520,3 +547,35 @@ class ModelRunner:
             'auction_component': self.model.auction_results,
             'industrial_component': self.model.industrial_results
         }
+    
+    def _run_scenario(self, scenario_index: int) -> Dict[str, Any]:
+        """
+        Run a single scenario.
+        
+        Args:
+            scenario_index: Index of the scenario to run
+            
+        Returns:
+            Dict containing the scenario results
+        """
+        # Store active scenario index for parameter lookups
+        self.model._active_scenario_index = scenario_index
+        print(f"\nDEBUG: Running scenario {scenario_index}: {self.model.scenarios[scenario_index]}")
+        print(f"DEBUG: Active scenario index set to {scenario_index}")
+        
+        # Get component config for debugging
+        component_config = self.model.component_configs[scenario_index]
+        print(f"DEBUG: Component config price_control_config: {getattr(component_config, 'price_control_config', 'Not set')}")
+        
+        # Reinitialize price control values for this scenario
+        print("DEBUG: Reinitializing price control values for scenario")
+        self.model._initialise_price_control()
+        
+        # Run optimisation for this scenario
+        result = self._run_scenario_optimisation()
+        
+        # Clear active scenario index when done
+        print(f"DEBUG: Clearing active scenario index (was {scenario_index})")
+        self.model._active_scenario_index = None
+        
+        return result

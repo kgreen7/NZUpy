@@ -149,9 +149,6 @@ class ScenarioManager:
         # Also set model_params to central
         self.model.component_configs[scenario_index].model_params = "central"
         
-        # Set price control config to central
-        self.model.component_configs[scenario_index].price_control_config = "central"
-        
         print(f"Using central configs for all components in model scenario {scenario_index} ({self.model.scenarios[scenario_index]})")
         
         return self.model

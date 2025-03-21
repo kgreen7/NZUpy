@@ -81,6 +81,20 @@ class OutputFormat:
             if scenario in self.results:
                 result = self.results[scenario]
                 
+                print(f"\nDEBUG OUTPUT FORMAT - scenario: {scenario}")
+                if 'prices' in result:
+                    print(f"  Direct prices key exists")
+                    if isinstance(result['prices'], pd.Series) and 2024 in result['prices'].index:
+                        print(f"  Price 2024: ${result['prices'][2024]:.2f}")
+                        print(f"  Price 2030: ${result['prices'][2030]:.2f}")
+                        print(f"  Price 2040: ${result['prices'][2040]:.2f}")
+                if 'model' in result and 'prices' in result['model']:
+                    print(f"  Nested prices key exists")
+                    if isinstance(result['model']['prices'], pd.Series) and 2024 in result['model']['prices'].index:
+                        print(f"  Model Price 2024: ${result['model']['prices'][2024]:.2f}")
+                        print(f"  Model Price 2030: ${result['model']['prices'][2030]:.2f}")
+                        print(f"  Model Price 2040: ${result['model']['prices'][2040]:.2f}")
+
                 # Extract real prices from results structure
                 real_prices = None
                 if 'prices' in result:

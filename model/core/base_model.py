@@ -91,7 +91,6 @@ class NZUpy:
         # Create empty configuration objects - will be populated later
         self.scenarios = []  # Will hold scenario names
         self.component_configs = []  # Will hold component configurations for each scenario
-        
         # Track whether core methods have been called
         self._time_defined = False
         self._scenarios_defined = False
@@ -191,30 +190,37 @@ class NZUpy:
         # Create empty price control series
         self.price_control_parameter = pd.Series(index=self.years)
         
-        # Get the current scenario's component config
-        # If no scenarios defined yet, use default 'central' config
-        if not hasattr(self, 'scenarios') or not self.scenarios:
-            price_control_config = 'central'
-        else:
-            # Get current scenario or default to first scenario
-            current_scenario = getattr(self, 'current_scenario', None)
-            if not current_scenario:
-                current_scenario = self.scenarios[0]
-            
-            scenario_index = self.scenarios.index(current_scenario)
-            component_config = self.component_configs[scenario_index]
-            price_control_config = getattr(component_config, 'price_control_config', 'central')
+        # Get configuration name using active_price_control_config property
+        config_name = self.active_price_control_config
+        print(f"DEBUG: Initialising price control with config: {config_name}")
+        print(f"DEBUG: Active scenario index: {getattr(self, '_active_scenario_index', None)}")
         
-        # Load values from the CSV via historical data manager
-        if hasattr(self.data_handler, 'historical_manager'):
+        # Load values directly from CSV
+        try:
+            price_control_csv = self.data_handler.parameters_dir / "price_control.csv"
+            df = pd.read_csv(price_control_csv)
+            
+            # Filter for current config and convert to series
+            config_values = df[df['Config'] == config_name].set_index('Year')['Value']
+            
+            # Apply values to our years
             for year in self.years:
-                price_control = self.data_handler.historical_manager.get_price_control(year, config=price_control_config)
-                if price_control is not None:
-                    self.price_control_parameter[year] = price_control
+                if year in config_values.index:
+                    self.price_control_parameter[year] = config_values[year]
+                    print(f"DEBUG: Year {year} price control set to {config_values[year]}")
+                else:
+                    # Default to 1.0 if year not found
+                    self.price_control_parameter[year] = 1.0
+                    print(f"DEBUG: Year {year} price control defaulting to 1.0")
+        except Exception as e:
+            print(f"Warning: Error loading price control values: {e}")
+            # Default all years to 1.0
+            self.price_control_parameter.fillna(1.0, inplace=True)
         
         # Apply any year-specific price control values from config
         for year, value in self.config.price_control_values.items():
             if year in self.price_control_parameter.index:
+                print(f"DEBUG: Overriding year {year} price control to {value} from config")
                 self.price_control_parameter[year] = value
     
     def define_scenarios(self, scenario_names: List[str]) -> 'NZUpy':
@@ -622,6 +628,16 @@ class NZUpy:
                     if year in self.price_control_parameter.index}
         
         self.set_price_control(year_values)
+    
+    @property
+    def active_price_control_config(self):
+        """Get the active price control configuration for the current run."""
+        # The model runner already sets up the scenario's config before calculations
+        # so we can just check the current component_configs for the active scenario
+        if hasattr(self, '_active_scenario_index'):
+            component_config = self.component_configs[self._active_scenario_index]
+            return getattr(component_config, 'price_control_config', 'central')
+        return 'central'  # Default if not running a specific scenario
     
     def run_scenarios(self, scenarios: List[str]) -> Dict[str, Dict[str, Any]]:
         """
@@ -1405,9 +1421,7 @@ class NZUpy:
                 raise ValueError(f"Unknown scenario_name: {scenario_name}")
             scenario = scenario_name
             print(f"DEBUG: Using scenario '{scenario}' from name")
-        else:
-            scenario = self.current_scenario
-            print(f"DEBUG: Using current scenario '{scenario}'")
+
         
         # Store configuration name in scenario manager
         self.scenario_manager.set_price_control_config(scenario, config_name)

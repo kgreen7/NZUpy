@@ -347,17 +347,19 @@ def create_comparison_page(models: Dict[str, Any],
                           chart_params: Dict[str, Any] = None,
                           title: str = "NZUpy Model Comparison",
                           output_dir: Optional[str] = None,
-                          filename: str = "comparison.html") -> str:
+                          filename: str = "comparison.html",
+                          use_scenario_names: bool = False) -> str:
     """
     Create an HTML page comparing chart results from multiple model runs.
     
     Args:
-        models: Dictionary mapping model names to NZUpy model instances
+        models: Dictionary mapping model names to NZUpy model instances or (model, scenario) tuples
         chart_type: Type of chart to create ('carbon_price', 'emissions_pathway', etc.)
         chart_params: Additional parameters to pass to the chart method
         title: Title for the comparison page
         output_dir: Directory to save the HTML file (if None, HTML is only returned)
         filename: Name of the HTML file to create
+        use_scenario_names: If True, models are (model, scenario) tuples 
         
     Returns:
         HTML content as a string
@@ -377,16 +379,30 @@ def create_comparison_page(models: Dict[str, Any],
     
     # Generate charts for each model
     charts = {}
-    for model_name, model in models.items():
+    for model_name, model_info in models.items():
         try:
-            # Create chart generator for this model
-            chart_gen = ChartGenerator(model, getattr(model, 'data_handler', None))
-            
-            # Get the chart method (e.g., carbon_price_chart)
-            chart_method = getattr(chart_gen, f"{chart_type}_chart")
-            
-            # Generate the chart
-            fig = chart_method(**chart_params)
+            # Handle tuple format (model, scenario)
+            if use_scenario_names and isinstance(model_info, tuple) and len(model_info) == 2:
+                model, scenario = model_info
+                # Create chart generator for this model
+                chart_gen = ChartGenerator(model)
+                
+                # Get the chart method (e.g., carbon_price_chart)
+                chart_method = getattr(chart_gen, f"{chart_type}_chart")
+                
+                # Generate the chart with specified scenario
+                fig = chart_method(scenario=scenario, **chart_params)
+            else:
+                # Standard behavior for separate model instances
+                model = model_info
+                # Create chart generator for this model
+                chart_gen = ChartGenerator(model)
+                
+                # Get the chart method (e.g., carbon_price_chart)
+                chart_method = getattr(chart_gen, f"{chart_type}_chart")
+                
+                # Generate the chart
+                fig = chart_method(**chart_params)
             
             # Update layout to include model name in title
             current_title = fig.layout.title.text
