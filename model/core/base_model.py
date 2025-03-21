@@ -308,7 +308,6 @@ class NZUpy:
         Returns:
             Self for method chaining
         """
-        print(f"\nDEBUG: Setting parameter {parameter_name} to {value} for component {component} in scenario {scenario_index}")
         if not self._primed:
             raise ValueError("Model must be primed before setting parameters. Call prime() first.")
         
@@ -330,14 +329,6 @@ class NZUpy:
         
         # Handle different components
         if component == 'stockpile':
-            print(f"DEBUG: Stockpile parameter {parameter_name} being set to {value}")
-            print(f"DEBUG: Current component_config values before setting:")
-            for attr in dir(component_config):
-                if not attr.startswith('_'):
-                    print(f"  {attr}: {getattr(component_config, attr)}")
-            
-            if parameter_name in ['liquidity_factor', 'discount_rate']:
-                print(f"DEBUG: Special stockpile parameter {parameter_name} detected")
             
             # Validate parameter name
             valid_params = ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
@@ -363,8 +354,7 @@ class NZUpy:
             
             # Set the parameter
             setattr(component_config, parameter_name, value)
-            print(f"DEBUG: After setting {parameter_name}, component_config.{parameter_name} = {getattr(component_config, parameter_name)}")
-            
+
             # Print confirmation
             print(f"Set {component}.{parameter_name} = {value} for scenario '{scenario_name}'")
             
@@ -439,18 +429,65 @@ class NZUpy:
         
         # Check scenario configurations
         for i, scenario_config in enumerate(self.component_configs):
+            scenario_name = self.scenarios[i]
+            
             # Check if required scenario types are set
             if not scenario_config.emissions:
-                raise ValueError(f"Emissions scenario not set for scenario {i}. Call use_config() first.")
+                raise ValueError(f"Emissions scenario not set for '{scenario_name}'. Call use_config() first.")
             
             if not scenario_config.auctions:
-                raise ValueError(f"Auction scenario not set for scenario {i}. Call use_config() first.")
+                raise ValueError(f"Auction scenario not set for '{scenario_name}'. Call use_config() first.")
             
             if not scenario_config.industrial_allocation:
-                raise ValueError(f"Industrial allocation scenario not set for scenario {i}. Call use_config() first.")
+                raise ValueError(f"Industrial allocation scenario not set for '{scenario_name}'. Call use_config() first.")
             
             if not scenario_config.forestry:
-                raise ValueError(f"Forestry scenario not set for scenario {i}. Call use_config() first.")
+                raise ValueError(f"Forestry scenario not set for '{scenario_name}'. Call use_config() first.")
+            
+            # Validate stockpile parameters if set
+            stockpile_params = {}
+            try:
+                # Try to get stockpile parameters with any custom values
+                if scenario_config.stockpile:
+                    stockpile_params = self.data_handler.get_stockpile_parameters(
+                        scenario_config.stockpile,
+                        overrides={
+                            'initial_stockpile': scenario_config.initial_stockpile,
+                            'initial_surplus': scenario_config.initial_surplus,
+                            'liquidity_factor': scenario_config.liquidity_factor,
+                            'discount_rate': scenario_config.discount_rate,
+                            'payback_period': scenario_config.payback_period,
+                            'stockpile_usage_start_year': scenario_config.stockpile_usage_start_year,
+                            'stockpile_reference_year': scenario_config.stockpile_reference_year
+                        }
+                    )
+                else:
+                    # If no config specified, use model parameters
+                    stockpile_params = self.data_handler.get_stockpile_parameters()
+            except Exception as e:
+                raise ValueError(f"Failed to validate stockpile parameters for scenario '{scenario_name}': {e}")
+            
+            # Validate relationships between parameters
+            if stockpile_params['initial_surplus'] > stockpile_params['initial_stockpile']:
+                raise ValueError(
+                    f"Invalid stockpile parameters for scenario '{scenario_name}': "
+                    f"initial_surplus ({stockpile_params['initial_surplus']}) cannot exceed "
+                    f"initial_stockpile ({stockpile_params['initial_stockpile']})"
+                )
+            
+            if stockpile_params['stockpile_usage_start_year'] < self.config.start_year:
+                raise ValueError(
+                    f"Invalid stockpile parameters for scenario '{scenario_name}': "
+                    f"stockpile_usage_start_year ({stockpile_params['stockpile_usage_start_year']}) "
+                    f"cannot be before model start year ({self.config.start_year})"
+                )
+            
+            if stockpile_params['stockpile_reference_year'] >= stockpile_params['stockpile_usage_start_year']:
+                print(
+                    f"Warning: stockpile_reference_year ({stockpile_params['stockpile_reference_year']}) "
+                    f"should be before stockpile_usage_start_year ({stockpile_params['stockpile_usage_start_year']}) "
+                    f"for scenario '{scenario_name}'"
+                )
         
         # All checks passed
         return True

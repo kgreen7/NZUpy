@@ -372,20 +372,26 @@ class ScenarioManager:
         try:
             # STEP 1: Load base parameters from config file or defaults
             base_params = {}
+            
+            # First try to get parameters from config file if specified
             if scenario_config.stockpile:
-                # If a config is specified, load its parameters
-                config_params = self.model.data_handler.get_stockpile_parameters(scenario_config.stockpile)
-                base_params = {
-                    'initial_stockpile': config_params['initial_stockpile'],
-                    'initial_surplus': config_params['initial_surplus'],
-                    'liquidity_factor': config_params['liquidity_factor'],
-                    'payback_period': config_params['payback_period'],
-                    'stockpile_usage_start_year': config_params['stockpile_usage_start_year'],
-                    'discount_rate': config_params['discount_rate'],
-                    'stockpile_reference_year': config_params.get('stockpile_reference_year', min(self.model.years) - 1)
-                }
-            else:
-                # If no config specified, use model parameters with appropriate mappings
+                try:
+                    config_params = self.model.data_handler.get_stockpile_parameters(scenario_config.stockpile)
+                    base_params = {
+                        'initial_stockpile': config_params['initial_stockpile'],
+                        'initial_surplus': config_params['initial_surplus'],
+                        'liquidity_factor': config_params['liquidity_factor'],
+                        'payback_period': config_params['payback_period'],
+                        'stockpile_usage_start_year': config_params['stockpile_usage_start_year'],
+                        'discount_rate': config_params['discount_rate'],
+                        'stockpile_reference_year': config_params.get('stockpile_reference_year', min(self.model.years) - 1)
+                    }
+                except Exception as e:
+                    print(f"Warning: Failed to load stockpile parameters from config '{scenario_config.stockpile}': {e}")
+                    print("Falling back to model parameters")
+            
+            # If no config specified or config loading failed, use model parameters
+            if not base_params:
                 param_mappings = {
                     'initial_stockpile': 'stockpile_start',
                     'initial_surplus': 'surplus_start',
@@ -399,7 +405,7 @@ class ScenarioManager:
                     value = model_params.get(model_param_name)
                     if value is None:
                         raise ValueError(f"Required parameter '{scenario_name}' not found in model parameters")
-                        
+                    
                     # Convert to appropriate type
                     if scenario_name in ['payback_period', 'stockpile_usage_start_year']:
                         base_params[scenario_name] = int(value)
@@ -411,16 +417,32 @@ class ScenarioManager:
             
             # STEP 2: Override with any explicitly set parameters
             param_list = ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
-                        'discount_rate', 'payback_period', 'stockpile_usage_start_year',
-                        'stockpile_reference_year']
+                         'discount_rate', 'payback_period', 'stockpile_usage_start_year',
+                         'stockpile_reference_year']
             
             for param in param_list:
                 custom_value = getattr(scenario_config, param, None)
                 if custom_value is not None:
+                    # Validate parameter values before overriding
+                    if param == 'liquidity_factor' and not 0 <= custom_value <= 1:
+                        raise ValueError(f"liquidity_factor must be between 0 and 1, got {custom_value}")
+                    elif param == 'discount_rate' and not 0 <= custom_value <= 1:
+                        raise ValueError(f"discount_rate must be between 0 and 1, got {custom_value}")
+                    elif param == 'initial_stockpile' and custom_value < 0:
+                        raise ValueError(f"initial_stockpile cannot be negative, got {custom_value}")
+                    elif param == 'initial_surplus' and custom_value < 0:
+                        raise ValueError(f"initial_surplus cannot be negative, got {custom_value}")
+                    elif param == 'initial_surplus' and custom_value > base_params['initial_stockpile']:
+                        raise ValueError(f"initial_surplus ({custom_value}) cannot exceed initial_stockpile ({base_params['initial_stockpile']})")
+                    elif param == 'payback_period' and custom_value <= 0:
+                        raise ValueError(f"payback_period must be positive, got {custom_value}")
+                    elif param == 'stockpile_usage_start_year' and custom_value < self.model.config.start_year:
+                        raise ValueError(f"stockpile_usage_start_year cannot be before model start year {self.model.config.start_year}")
+                    
                     # Use the custom parameter instead of the config/default value
                     base_params[param] = custom_value
             
-            # Set final parameters
+            # STEP 3: Set final parameters
             stockpile_params = base_params
             
         except Exception as e:

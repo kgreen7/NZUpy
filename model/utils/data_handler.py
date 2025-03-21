@@ -588,12 +588,13 @@ class DataHandler:
         
         return ia_data
     
-    def get_stockpile_parameters(self, config: Optional[str] = None) -> Dict[str, Any]:
+    def get_stockpile_parameters(self, config: Optional[str] = None, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Get stockpile parameters from stockpile balance data and model parameters.
         
         Args:
             config: Configuration name (defaults to "central")
+            overrides: Optional dictionary of parameter overrides
             
         Returns:
             Dictionary of stockpile parameters
@@ -610,8 +611,9 @@ class DataHandler:
                 self._load_stockpile_balance_data()
             
             # Filter for the config
+            config_lower = config.lower() if config else 'central'
             config_data = self.stockpile_balance_data[
-                self.stockpile_balance_data['Config'].str.lower() == (config.lower() if config else 'central')
+                self.stockpile_balance_data['Config'].str.lower() == config_lower
             ]
             
             if config_data.empty:
@@ -678,6 +680,35 @@ class DataHandler:
         
         # Add reference year
         result['stockpile_reference_year'] = target_year
+        
+        # Apply overrides if provided
+        if overrides:
+            # Validate overrides before applying
+            for param, value in overrides.items():
+                if param not in result:
+                    raise ValueError(f"Unknown parameter in overrides: {param}")
+                
+                # Validate parameter values
+                if param == 'liquidity_factor' and not 0 <= value <= 1:
+                    raise ValueError(f"liquidity_factor must be between 0 and 1, got {value}")
+                elif param == 'discount_rate' and not 0 <= value <= 1:
+                    raise ValueError(f"discount_rate must be between 0 and 1, got {value}")
+                elif param == 'initial_stockpile' and value < 0:
+                    raise ValueError(f"initial_stockpile cannot be negative, got {value}")
+                elif param == 'initial_surplus' and value < 0:
+                    raise ValueError(f"initial_surplus cannot be negative, got {value}")
+                elif param == 'initial_surplus' and value > result['initial_stockpile']:
+                    raise ValueError(f"initial_surplus ({value}) cannot exceed initial_stockpile ({result['initial_stockpile']})")
+                elif param == 'payback_period' and value <= 0:
+                    raise ValueError(f"payback_period must be positive, got {value}")
+                elif param == 'stockpile_usage_start_year' and value < start_year:
+                    raise ValueError(f"stockpile_usage_start_year cannot be before model start year {start_year}")
+                
+                # Convert to appropriate type
+                if param in ['payback_period', 'stockpile_usage_start_year', 'stockpile_reference_year']:
+                    result[param] = int(value)
+                else:
+                    result[param] = float(value)
         
         return result
     

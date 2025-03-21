@@ -61,15 +61,12 @@ class StockpileSupply:
             stockpile_usage_start_year: Year when stockpile becomes available to use. Default is 2024.
             forestry_variables: DataFrame with forestry_held and forestry_surrender data by year.
         """
-        print(f"DEBUG: StockpileSupply.__init__ called with liquidity_factor={liquidity_factor}")
-        print(f"DEBUG: stockpile_params={stockpile_params}")
         self.years = years
         self.extended_years = extended_years or []
         stockpile_params = stockpile_params or {}
         
         # Remove default fallback values and require parameters to be provided
         self.liquidity_factor = liquidity_factor or stockpile_params.get('liquidity_factor')
-        print(f"DEBUG: After setting liquidity_factor, value is: {self.liquidity_factor}")
         if self.liquidity_factor is None:
             raise ValueError("liquidity_factor must be provided either directly or via stockpile_params")
         
@@ -167,7 +164,6 @@ class StockpileSupply:
         Returns:
             DataFrame containing stockpile results by year.
         """
-        print(f"DEBUG: Starting stockpile calculation with liquidity_factor: {self.liquidity_factor}")
         # Convert supply_demand_balance to Series if provided
         if supply_demand_balance is not None and not isinstance(supply_demand_balance, pd.Series):
             supply_demand_balance = pd.Series(supply_demand_balance)
