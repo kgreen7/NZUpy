@@ -321,22 +321,16 @@ class CalculationEngine:
         """
         # Get control value from parameter hierarchy
         control_value = self._get_price_control_value(year)
-        print(f"DEBUG: First projected year {year} using control value: {control_value}")
-        
+
         # Apply control parameter to price change
         if control_value >= 0:
             # Positive control: apply standard growth
             growth_factor = 1 + (self.model.price_change_rate * control_value)
-            print(f"DEBUG: Positive control - growth_factor: {growth_factor}")
             self.model.prices[year] = self.model.last_historical_price * growth_factor
-            print(f"DEBUG: New price: {self.model.prices[year]} (from {self.model.last_historical_price})")
         else:
             # Negative control: invert the change direction
             reduction_factor = 1 - (self.model.price_change_rate * abs(control_value))
-            print(f"DEBUG: Negative control - reduction_factor: {reduction_factor}")
             self.model.prices[year] = self.model.last_historical_price * reduction_factor
-            print(f"DEBUG: New price: {self.model.prices[year]} (from {self.model.last_historical_price})")
-
     def _calculate_subsequent_year_price(self, year: int):
         """
         Calculate price for years after the first projected year.
@@ -348,21 +342,15 @@ class CalculationEngine:
         
         # Get control value from parameter hierarchy
         control_value = self._get_price_control_value(year)
-        print(f"DEBUG: Year {year} using control value: {control_value}")
-        
         # Apply control parameter to price change
         if control_value >= 0:
             # Positive control: apply standard growth
             growth_factor = 1 + (self.model.price_change_rate * control_value)
-            print(f"DEBUG: Positive control - growth_factor: {growth_factor}")
             self.model.prices[year] = self.model.prices[prev_year] * growth_factor
-            print(f"DEBUG: New price: {self.model.prices[year]} (from {self.model.prices[prev_year]})")
         else:
             # Negative control: invert the change direction
             reduction_factor = 1 - (self.model.price_change_rate * abs(control_value))
-            print(f"DEBUG: Negative control - reduction_factor: {reduction_factor}")
             self.model.prices[year] = self.model.prices[prev_year] * reduction_factor
-            print(f"DEBUG: New price: {self.model.prices[year]} (from {self.model.prices[prev_year]})")
 
     def _get_price_control_value(self, year: int) -> float:
         """
@@ -378,7 +366,6 @@ class CalculationEngine:
         if hasattr(self.model, 'price_control_parameter'):
             control_value = self.model.price_control_parameter.get(year)
             if control_value is not None:
-                print(f"DEBUG: Found price control value {control_value} for year {year} in price_control_parameter")
                 return control_value
         
         # Try getting from currently active config (middle priority)
@@ -391,12 +378,10 @@ class CalculationEngine:
                 control_value = self.model.data_handler.historical_manager.get_price_control(
                     year, config=active_config)
                 if control_value is not None:
-                    print(f"DEBUG: Found price control value {control_value} for year {year} in historical manager")
                     return control_value
         
         # Default fallback (lowest priority)
-        print(f"DEBUG: Using default price control value 1.0 for year {year}")
-        return 1.0
+        return 1.0 # TODO: Figure out how to remove fallback here without breaking model
 
     def _apply_price_constraints(self, year: int, min_price: Optional[float], max_price: Optional[float]):
         """

@@ -1,4 +1,4 @@
-Variable,Config,Value,Description
+Variable,Config,Value,Metadata
 discount_rate,central,0.05,Discount rate used by emitters
 payback_years,central,25,Number of years until non-surplus units used are paid back
 start_year,central,2024,Start year for optimisation window

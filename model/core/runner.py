@@ -49,9 +49,6 @@ class ModelRunner:
         
         # Run each scenario
         for i, scenario_name in enumerate(self.model.scenarios):
-            print(f"\nDEBUG: Starting scenario {i}: {scenario_name}")
-            print(f"DEBUG: Component config price_control_config: {getattr(self.model.component_configs[i], 'price_control_config', 'Not set')}")
-            
             # Get the component configuration for this scenario
             component_config = self.model.component_configs[i]
             
@@ -64,10 +61,6 @@ class ModelRunner:
             # Store results
             scenario_results[scenario_name] = result
             
-            # Print summary
-            print(f"DEBUG: Completed scenario {i}: {scenario_name}")
-            print(f"DEBUG: Final price_control_config: {getattr(self.model.component_configs[i], 'price_control_config', 'Not set')}")
-        
         # Store all results
         self.model.results = scenario_results
         
@@ -184,19 +177,6 @@ class ModelRunner:
         # Calculate final gap
         gap = self.model.calculation_engine._calculate_total_gap()
         
-        # IMPORTANT: Verify the prices in the model include the price control effects
-        if is_final_run:
-            print("\nDEBUG: Final price curve with controls:")
-            debug_years = [2024, 2030, 2040, 2050]
-            for year in debug_years:
-                control = self.model.price_control_parameter[year]
-                price = self.model.prices[year]
-                print(f"  Year {year}: Control={control}, Price=${price:.2f}")
-        print("\nDEBUG FINAL MODEL RESULTS before compilation:")
-        print(f"Prices at Year 2024: ${self.model.prices[2024]:.2f}")
-        print(f"Prices at Year 2030: ${self.model.prices[2030]:.2f}")
-        print(f"Prices at Year 2040: ${self.model.prices[2040]:.2f}")
-        print(f"Prices at Year 2050: ${self.model.prices[2050]:.2f}")
         # Compile and return results
         model_results = self._compile_model_results(gap, run_data['iteration'])
         
@@ -560,22 +540,11 @@ class ModelRunner:
         """
         # Store active scenario index for parameter lookups
         self.model._active_scenario_index = scenario_index
-        print(f"\nDEBUG: Running scenario {scenario_index}: {self.model.scenarios[scenario_index]}")
-        print(f"DEBUG: Active scenario index set to {scenario_index}")
         
-        # Get component config for debugging
-        component_config = self.model.component_configs[scenario_index]
-        print(f"DEBUG: Component config price_control_config: {getattr(component_config, 'price_control_config', 'Not set')}")
-        
-        # Reinitialize price control values for this scenario
-        print("DEBUG: Reinitializing price control values for scenario")
         self.model._initialise_price_control()
         
         # Run optimisation for this scenario
         result = self._run_scenario_optimisation()
-        
-        # Clear active scenario index when done
-        print(f"DEBUG: Clearing active scenario index (was {scenario_index})")
         self.model._active_scenario_index = None
         
         return result

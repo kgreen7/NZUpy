@@ -81,20 +81,6 @@ class OutputFormat:
             if scenario in self.results:
                 result = self.results[scenario]
                 
-                print(f"\nDEBUG OUTPUT FORMAT - scenario: {scenario}")
-                if 'prices' in result:
-                    print(f"  Direct prices key exists")
-                    if isinstance(result['prices'], pd.Series) and 2024 in result['prices'].index:
-                        print(f"  Price 2024: ${result['prices'][2024]:.2f}")
-                        print(f"  Price 2030: ${result['prices'][2030]:.2f}")
-                        print(f"  Price 2040: ${result['prices'][2040]:.2f}")
-                if 'model' in result and 'prices' in result['model']:
-                    print(f"  Nested prices key exists")
-                    if isinstance(result['model']['prices'], pd.Series) and 2024 in result['model']['prices'].index:
-                        print(f"  Model Price 2024: ${result['model']['prices'][2024]:.2f}")
-                        print(f"  Model Price 2030: ${result['model']['prices'][2030]:.2f}")
-                        print(f"  Model Price 2040: ${result['model']['prices'][2040]:.2f}")
-
                 # Extract real prices from results structure
                 real_prices = None
                 if 'prices' in result:
@@ -662,26 +648,37 @@ class OutputFormat:
             if scenario in self.results:
                 result = self.results[scenario]
                 
-                # Extract emissions component data
-                if 'model' in result and 'emissions_component' in result['model']:
-                    emissions_comp = result['model']['emissions_component']
-                    
-                    if isinstance(emissions_comp, pd.DataFrame):
+                # Extract emissions data - first try emissions_results, then emissions_component
+                emissions_data = None
+                if 'model' in result:
+                    if 'emissions_results' in result['model']:
+                        emissions_data = result['model']['emissions_results']
+                    elif 'emissions_component' in result['model']:
+                        emissions_data = result['model']['emissions_component']
+                
+                if emissions_data is not None:
+                    # Handle both DataFrame and EmissionsDemand object cases
+                    if isinstance(emissions_data, pd.DataFrame):
                         # Create proper multi-index columns
-                        if 'baseline_emissions' in emissions_comp:
-                            data[(scenario, 'baseline')] = emissions_comp['baseline_emissions']
-                        if 'total_demand' in emissions_comp:
-                            data[(scenario, 'emissions')] = emissions_comp['total_demand']
-                        elif 'price_adjusted_emissions' in emissions_comp:
-                            data[(scenario, 'emissions')] = emissions_comp['price_adjusted_emissions']
-                        
-                        # Calculate gross mitigation
-                        if 'baseline_emissions' in emissions_comp and (
-                                'total_demand' in emissions_comp or 
-                                'price_adjusted_emissions' in emissions_comp):
-                            baseline = emissions_comp['baseline_emissions']
-                            emissions = emissions_comp['total_demand'] if 'total_demand' in emissions_comp else emissions_comp['price_adjusted_emissions']
-                            data[(scenario, 'gross_mitigation')] = baseline - emissions
+                        if 'baseline_emissions' in emissions_data:
+                            data[(scenario, 'baseline')] = emissions_data['baseline_emissions']
+                        if 'total_demand' in emissions_data:
+                            data[(scenario, 'emissions')] = emissions_data['total_demand']
+                        elif 'price_adjusted_emissions' in emissions_data:
+                            data[(scenario, 'emissions')] = emissions_data['price_adjusted_emissions']
+                    elif hasattr(emissions_data, 'results'):
+                        # If it's an EmissionsDemand object, use its results DataFrame
+                        results_df = emissions_data.results
+                        if 'baseline_emissions' in results_df:
+                            data[(scenario, 'baseline')] = results_df['baseline_emissions']
+                        if 'total_demand' in results_df:
+                            data[(scenario, 'emissions')] = results_df['total_demand']
+                        elif 'price_adjusted_emissions' in results_df:
+                            data[(scenario, 'emissions')] = results_df['price_adjusted_emissions']
+                    
+                    # Calculate gross mitigation if we have both baseline and emissions
+                    if (scenario, 'baseline') in data and (scenario, 'emissions') in data:
+                        data[(scenario, 'gross_mitigation')] = data[(scenario, 'baseline')] - data[(scenario, 'emissions')]
                 
                 # Add payback units from stockpile component if available
                 if 'model' in result and 'stockpile_component' in result['model']:

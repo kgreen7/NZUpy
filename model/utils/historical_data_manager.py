@@ -127,25 +127,6 @@ class HistoricalDataManager:
                     raise RuntimeError(f"Failed to load historical carbon prices from {file_path}: {e}")
                 print(f"Warning: Could not load historical data file {file_path}: {e}")
     
-    def get_carbon_price(self, year: int, config: str = 'central') -> Optional[float]:
-        """Get carbon price for a specific year and config."""
-        if self.price_data.empty or config not in self.price_data.columns:
-            return None
-        
-        if year in self.price_data.index:
-            return self.price_data.loc[year, config]
-        
-        # If year not found, try closest available
-        available_years = self.price_data.index.tolist()
-        if not available_years:
-            return None
-            
-        closest_year = max([y for y in available_years if y <= year], default=None)
-        if closest_year is not None:
-            return self.price_data.loc[closest_year, config]
-        
-        return None
-    
     def get_price_control(self, year: int, config: str = 'central') -> float:
         """Get price control value for a specific year and config."""
         if self.price_control_data.empty or config not in self.price_control_data.columns:
@@ -183,22 +164,6 @@ class HistoricalDataManager:
         
         # For other variables, return from historical_data
         return self.historical_data.get(variable, None)
-    
-    def _get_nominal_carbon_prices(self) -> Optional[pd.Series]:
-        """
-        Get nominal historical carbon prices by converting from real prices.
-        
-        Returns:
-            Series of nominal carbon prices
-        """
-        if 'carbon_price' not in self.historical_data:
-            return None
-        
-        # Convert real prices to nominal
-        real_prices = self.historical_data['carbon_price']
-        nominal_prices = convert_real_to_nominal(real_prices, cpi_data=self.cpi_data)
-        
-        return pd.Series(nominal_prices)
     
     def get_combined_series(self, variable: str, model_data: pd.Series, nominal: bool = False) -> pd.Series:
         """
@@ -250,48 +215,22 @@ class HistoricalDataManager:
             surplus = year_config_match[year_config_match['Variable'] == 'surplus']['Value'].iloc[0]
             return {'stockpile': stockpile, 'surplus': surplus}
         
-        # If not found, try with 'central' config for same year
-        if config.lower() != 'central':
+        # If no exact match, try central config for same year
+        if config != 'central':
             central_match = self.stockpile_start_data[
                 (self.stockpile_start_data['Year'] == year) & 
-                (self.stockpile_start_data['Config'].str.lower() == 'central')
+                (self.stockpile_start_data['Config'] == 'central')
             ]
-            
             if not central_match.empty:
                 stockpile = central_match[central_match['Variable'] == 'stockpile']['Value'].iloc[0]
                 surplus = central_match[central_match['Variable'] == 'surplus']['Value'].iloc[0]
-                print(f"Config '{config}' not found for year {year}, using 'central' config")
                 return {'stockpile': stockpile, 'surplus': surplus}
         
-        # If still not found, look for closest available year
-        available_years = self.stockpile_start_data['Year'].unique()
-        closest_year = min(available_years, key=lambda x: abs(x - year))
-        
-        year_match = self.stockpile_start_data[
-            (self.stockpile_start_data['Year'] == closest_year) &
-            (self.stockpile_start_data['Config'].str.lower() == config.lower())
-        ]
-        
-        if not year_match.empty:
-            stockpile = year_match[year_match['Variable'] == 'stockpile']['Value'].iloc[0]
-            surplus = year_match[year_match['Variable'] == 'surplus']['Value'].iloc[0]
-            print(f"No data for year {year}, using closest year {closest_year} for config '{config}'")
-            return {'stockpile': stockpile, 'surplus': surplus}
-        
-        # Final fallback to defaults with warning
-        print(f"Warning: No stockpile data found for year {year} and config '{config}', using defaults")
+        # If still no match, use defaults
+        print(f"Warning: No stockpile start values found for year {year} and config {config}, using defaults")
         return {'stockpile': 159902, 'surplus': 67300}  # Default values
-
+    
     def convert_to_nominal(self, real_prices: pd.Series) -> pd.Series:
-        """
-        Convert real prices to nominal prices.
-        
-        Args:
-            real_prices: Series of real prices (2023 NZD)
-            
-        Returns:
-            Series of nominal prices
-        """
-        nominal_prices = convert_real_to_nominal(real_prices, cpi_data=self.cpi_data)
-        return pd.Series(nominal_prices)
+        """Convert real prices (2023 NZD) to nominal prices."""
+        return convert_real_to_nominal(real_prices, cpi_data=self.cpi_data)
     

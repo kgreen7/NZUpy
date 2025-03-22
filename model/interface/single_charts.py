@@ -176,7 +176,6 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
     fig = go.Figure()
     
     try:
-        # Print available columns to debug
         if hasattr(model, 'prices') and isinstance(model.prices, pd.DataFrame):
             if isinstance(model.prices.columns, pd.MultiIndex):
                 # Extract real price data
@@ -983,10 +982,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
     fig = go.Figure()
     
     try:
-        # Print available columns to debug
         if hasattr(model, 'auctions') and isinstance(model.auctions, pd.DataFrame):
-            print(f"\nAuctions columns: {model.auctions.columns.tolist()}")
-            
             # Check column structure
             column_tuples = [(scenario, 'base_supplied'), 
                              (scenario, 'ccr1_supplied'), 

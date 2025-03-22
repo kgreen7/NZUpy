@@ -1,5 +1,5 @@
-parameter,value,description
-coarse_step,10,Coarse step size for optimisation
-fine_step,1,Fine step size for optimisation
-max_rate,200,Maximum price change rate in thousandths
-max_iterations,5,
+parameter,value,description,Metadata
+coarse_step,10,Coarse step size for optimisation,"Aligned with MfE NZ ETS model Feb 25, except coarse step (10 vs. 15) checks additional price rates in coarse step search"
+fine_step,1,Fine step size for optimisation,
+max_rate,200,Maximum price change rate in thousandths,
+max_iterations,5,,

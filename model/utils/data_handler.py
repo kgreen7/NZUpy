@@ -323,13 +323,29 @@ class DataHandler:
             emissions_data.index = emissions_data.index.astype(int)
             emissions_data.index.name = 'year'
             
-            # Add base_emissions column from central config
-            central_data = df[df['Config'] == 'central']  # Exact column name match
+            # First try to get central config
+            central_data = df[df['Config'].str.lower() == 'central']
+            
+            # If central not available, try CCC_CPR as it's our main scenario
+            if central_data.empty:
+                central_data = df[df['Config'] == 'CCC_CPR']
+                print("Note: Using CCC_CPR config as central emissions scenario")
+            
+            # If still empty, use the first available config
+            if central_data.empty:
+                available_configs = df['Config'].unique()
+                if len(available_configs) > 0:
+                    central_data = df[df['Config'] == available_configs[0]]
+                    print(f"Note: Using {available_configs[0]} config as central emissions scenario")
+                else:
+                    raise ValueError("No emissions data configurations found")
+            
+            # Add base_emissions column
             emissions_data['base_emissions'] = central_data.set_index('Year')['Value']
             
             # Add other available configs
-            ccc_cpr = df[df['Config'] == 'CCC_CPR']  # Exact config name match
-            ccc_dp = df[df['Config'] == 'CCC_DP']    # Exact config name match
+            ccc_cpr = df[df['Config'] == 'CCC_CPR']
+            ccc_dp = df[df['Config'] == 'CCC_DP']
             
             if not ccc_cpr.empty:
                 emissions_data['high_scenario'] = ccc_cpr.set_index('Year')['Value']
@@ -956,69 +972,33 @@ class DataHandler:
             return ['central']  # Default to central on error
 
     def get_historical_data(self, variable: str, nominal: bool = False) -> Optional[pd.Series]:
-        """
-        Get historical data for a variable if available.
-        
-        Args:
-            variable: Name of the variable to get historical data for
-            nominal: Whether to return nominal prices (only applies to price data)
-            
-        Returns:
-            Series with historical data, or None if not available
-        """
-        return self.historical_manager.get_historical_data(variable, nominal=nominal)
-    
-    def get_carbon_price(self, year: int, config: str = 'central') -> Optional[float]:
-        """
-        Get carbon price for a specific year and config.
-        
-        Args:
-            year: The year to get the price for
-            config: The configuration to use (defaults to 'central')
-            
-        Returns:
-            Carbon price value, or None if not available
-        """
-        return self.historical_manager.get_carbon_price(year, config)
-    
-    def get_price_control(self, year: int, config: str = 'central') -> float:
-        """
-        Get price control value for a specific year and config.
-        
-        Args:
-            year: The year to get the price control value for
-            config: The configuration to use (defaults to 'central')
-            
-        Returns:
-            Price control value (defaults to 1.0 if not available)
-        """
-        return self.historical_manager.get_price_control(year, config)
-    
-    def get_combined_series(self, variable: str, model_data: pd.Series) -> pd.Series:
-        """
-        Combine historical and model data for a variable.
-        
-        Args:
-            variable: Name of the variable to combine data for
-            model_data: Series containing model data
-            
-        Returns:
-            Combined series with historical and model data
-        """
-        return self.historical_manager.get_combined_series(variable, model_data)
-    
+        """Get historical data for a variable."""
+        return self.historical_manager.get_historical_data(variable, nominal)
+
     def get_stockpile_start_values(self, year: int, config: str = 'central') -> Dict[str, float]:
-        """
-        Get stockpile start values for a specific year and config.
-        
-        Args:
-            year: The year to get stockpile values for
-            config: The configuration to use (defaults to 'central')
+        """Get stockpile start values for a given year and config."""
+        try:
+            file_path = self.stockpile_dir / "stockpile_start.csv"
+            if not file_path.exists():
+                print(f"Warning: Stockpile start data file not found: {file_path}")
+                return {}
             
-        Returns:
-            Dictionary containing 'stockpile' and 'surplus' values
-        """
-        return self.historical_manager.get_stockpile_start_values(year, config)
+            df = pd.read_csv(file_path)
+            year_data = df[df['Year'] == year]
+            if year_data.empty:
+                return {}
+            
+            config_data = year_data[year_data['Config'] == config]
+            if config_data.empty:
+                return {}
+            
+            return {
+                'stockpile': float(config_data['Stockpile'].iloc[0]),
+                'surplus': float(config_data['Surplus'].iloc[0])
+            }
+        except Exception as e:
+            print(f"Warning: Error reading stockpile start values: {e}")
+            return {}
 
     def get_industrial_allocation_data(self, config: Optional[str] = None) -> pd.DataFrame:
         """

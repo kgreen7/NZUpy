@@ -192,9 +192,6 @@ class NZUpy:
         
         # Get configuration name using active_price_control_config property
         config_name = self.active_price_control_config
-        print(f"DEBUG: Initialising price control with config: {config_name}")
-        print(f"DEBUG: Active scenario index: {getattr(self, '_active_scenario_index', None)}")
-        
         # Load values directly from CSV
         try:
             price_control_csv = self.data_handler.parameters_dir / "price_control.csv"
@@ -207,11 +204,9 @@ class NZUpy:
             for year in self.years:
                 if year in config_values.index:
                     self.price_control_parameter[year] = config_values[year]
-                    print(f"DEBUG: Year {year} price control set to {config_values[year]}")
                 else:
                     # Default to 1.0 if year not found
                     self.price_control_parameter[year] = 1.0
-                    print(f"DEBUG: Year {year} price control defaulting to 1.0")
         except Exception as e:
             print(f"Warning: Error loading price control values: {e}")
             # Default all years to 1.0
@@ -220,7 +215,6 @@ class NZUpy:
         # Apply any year-specific price control values from config
         for year, value in self.config.price_control_values.items():
             if year in self.price_control_parameter.index:
-                print(f"DEBUG: Overriding year {year} price control to {value} from config")
                 self.price_control_parameter[year] = value
     
     def define_scenarios(self, scenario_names: List[str]) -> 'NZUpy':
@@ -1407,24 +1401,16 @@ class NZUpy:
         Returns:
             Self for method chaining
         """
-        print(f"\nDEBUG: Attempting to set price control config '{config_name}'")
-        print(f"DEBUG: Target scenario_index: {scenario_index}, scenario_name: {scenario_name}")
-        
         # Determine which scenario to use
         if scenario_index is not None:
             if scenario_index < 0 or scenario_index >= len(self.scenarios):
                 raise ValueError(f"Invalid scenario_index: {scenario_index}")
             scenario = self.scenarios[scenario_index]
-            print(f"DEBUG: Using scenario '{scenario}' from index {scenario_index}")
         elif scenario_name is not None:
             if scenario_name not in self.scenarios:
                 raise ValueError(f"Unknown scenario_name: {scenario_name}")
-            scenario = scenario_name
-            print(f"DEBUG: Using scenario '{scenario}' from name")
 
-        
         # Store configuration name in scenario manager
         self.scenario_manager.set_price_control_config(scenario, config_name)
         
-        print(f"DEBUG: Price control config set to '{config_name}' for scenario '{scenario}'")
         return self
