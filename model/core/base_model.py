@@ -1133,8 +1133,7 @@ class NZUpy:
             print(f"Error retrieving series '{series_name}' from {component}: {str(e)}")
             return None
 
-    def set_series(self, series_name: str, data: pd.Series, component: str, 
-                scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
+    def set_series(self, series_name: str, data: pd.Series, component: str, scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
         """
         Set a time series for a specific component and scenario.
         
@@ -1164,13 +1163,16 @@ class NZUpy:
         # Get scenario name for display
         scenario_name = self.scenarios[scenario_index]
         
-        # Get component configuration
+        # Get component configuration for this scenario
         component_config = self.component_configs[scenario_index]
         
         # Handle different components
         if component == 'auction':
-            # Get auction data
-            auction_data = self.data_handler.get_auction_data(component_config.auctions)
+            # Get auction data for this specific scenario
+            auction_data = self.data_handler.get_auction_data(
+                config=component_config.auctions,
+                scenario_name=scenario_name
+            )
             
             # Validate series name
             valid_series = ['base_volume', 'auction_reserve_price', 'ccr_trigger_price_1', 
@@ -1181,15 +1183,19 @@ class NZUpy:
             # Update the series
             auction_data[series_name] = data
             
-            # Update the data handler's auction data
-            if hasattr(self.data_handler, 'auction_data'):
-                self.data_handler.auction_data = auction_data
+            # Store scenario-specific data
+            if scenario_name not in self.data_handler.scenario_data:
+                self.data_handler.scenario_data[scenario_name] = {}
+            self.data_handler.scenario_data[scenario_name]['auction'] = auction_data
             
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
             
         elif component == 'industrial':
-            # Get industrial allocation data
-            industrial_data = self.data_handler.get_industrial_allocation_data(component_config.industrial_allocation)
+            # Get industrial allocation data for this specific scenario
+            industrial_data = self.data_handler.get_industrial_allocation_data(
+                config=component_config.industrial_allocation,
+                scenario_name=scenario_name
+            )
             
             # Validate series name
             valid_series = ['baseline_allocation', 'activity_adjustment']
@@ -1199,15 +1205,19 @@ class NZUpy:
             # Update the series
             industrial_data[series_name] = data
             
-            # Update the data handler's industrial allocation data
-            if hasattr(self.data_handler, 'industrial_allocation_data'):
-                self.data_handler.industrial_allocation_data = industrial_data
+            # Store scenario-specific data
+            if scenario_name not in self.data_handler.scenario_data:
+                self.data_handler.scenario_data[scenario_name] = {}
+            self.data_handler.scenario_data[scenario_name]['industrial'] = industrial_data
             
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
             
         elif component == 'forestry':
-            # Get forestry data
-            forestry_data = self.data_handler.get_forestry_data(component_config.forestry)
+            # Get forestry data for this specific scenario
+            forestry_data = self.data_handler.get_forestry_data(
+                config=component_config.forestry,
+                scenario_name=scenario_name
+            )
             
             # Validate series name
             valid_series = ['forestry_supply']
@@ -1217,24 +1227,33 @@ class NZUpy:
             # Update the series
             forestry_data[series_name] = data
             
-            # Update the data handler's forestry data
-            if hasattr(self.data_handler, 'forestry_data'):
-                self.data_handler.forestry_data = forestry_data
+            # Store scenario-specific data
+            if scenario_name not in self.data_handler.scenario_data:
+                self.data_handler.scenario_data[scenario_name] = {}
+            self.data_handler.scenario_data[scenario_name]['forestry'] = forestry_data
             
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
             
         elif component == 'emissions':
-            # Get emissions data
-            emissions_data = self.data_handler.get_emissions_data(component_config.emissions)
+            # Get emissions data for this specific scenario
+            emissions_data = self.data_handler.get_emissions_data(
+                config=component_config.emissions,
+                scenario_name=scenario_name
+            )
             
             # Validate series name
             valid_series = ['emissions']
             if series_name not in valid_series:
                 raise ValueError(f"Invalid emissions series: '{series_name}'. Valid options: {', '.join(valid_series)}")
             
-            # Update the series
-            if isinstance(emissions_data, pd.DataFrame) and 'Year' in emissions_data.columns:
-                emissions_data.loc[emissions_data['Year'].isin(data.index), 'Value'] = data
+            # Update emissions data specifically for this scenario
+            if scenario_name not in self.data_handler.scenario_data:
+                self.data_handler.scenario_data[scenario_name] = {}
+            
+            # Store scenario-specific data
+            self.data_handler.scenario_data[scenario_name]['emissions'] = pd.DataFrame({
+                'emissions': data
+            })
             
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
             

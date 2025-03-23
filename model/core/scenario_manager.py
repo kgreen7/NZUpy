@@ -317,154 +317,116 @@ class ScenarioManager:
         print(f"Configured all scenarios for 'Range' run with demand model {model_number}")
         return self.model
         
-    def _initialise_scenario_components(self, scenario_config):
+    def _initialise_scenario_components(self, component_config, scenario_name=None):
         """
         Initialise components for a specific scenario with their input configurations.
         
         Args:
-            scenario_config: Configuration object containing which input config
+            component_config: Configuration object containing which input config
                            each component should use in this scenario
+            scenario_name: The name of the scenario being initialised (for scenario-specific data)
         """
-        # Get data for current scenarios
+        # Get data for current scenarios, using scenario-specific data where available
         try:
-            auction_data = self.model.data_handler.get_auction_data(config=scenario_config.auctions)
+            auction_data = self.model.data_handler.get_auction_data(
+                config=component_config.auctions,
+                scenario_name=scenario_name
+            )
         except Exception as e:
-            raise ValueError(f"Failed to load auction data for config '{scenario_config.auctions}': {e}")
+            raise ValueError(f"Failed to load auction data for config '{component_config.auctions}': {e}")
             
         try:
-            ia_data = self.model.data_handler.get_industrial_allocation_data(config=scenario_config.industrial_allocation)
+            ia_data = self.model.data_handler.get_industrial_allocation_data(
+                config=component_config.industrial_allocation,
+                scenario_name=scenario_name
+            )
         except Exception as e:
-            raise ValueError(f"Failed to load industrial allocation data for config '{scenario_config.industrial_allocation}': {e}")
+            raise ValueError(f"Failed to load industrial allocation data for config '{component_config.industrial_allocation}': {e}")
             
         try:
-            forestry_data = self.model.data_handler.get_forestry_data(config=scenario_config.forestry)
+            forestry_data = self.model.data_handler.get_forestry_data(
+                config=component_config.forestry,
+                scenario_name=scenario_name
+            )
         except Exception as e:
-            raise ValueError(f"Failed to load forestry data for config '{scenario_config.forestry}': {e}")
+            raise ValueError(f"Failed to load forestry data for config '{component_config.forestry}': {e}")
             
         try:
-            emissions_data = self.model.data_handler.get_emissions_data(config=scenario_config.emissions)
+            emissions_data = self.model.data_handler.get_emissions_data(
+                config=component_config.emissions,
+                scenario_name=scenario_name
+            )
         except Exception as e:
-            raise ValueError(f"Failed to load emissions data for config '{scenario_config.emissions}': {e}")
+            raise ValueError(f"Failed to load emissions data for config '{component_config.emissions}': {e}")
         
         # Get forestry variables data
         try:
-            forestry_variables = self.model.data_handler.get_forestry_variables(config=scenario_config.forestry)
-        except Exception as e:
-            raise ValueError(f"Failed to load forestry variables for config '{scenario_config.forestry}': {e}")
-        
-        # Get model parameters
-        try:
-            model_params = self.model.data_handler.get_model_parameters(config=scenario_config.model_params)
-        except Exception as e:
-            raise ValueError(f"Failed to load model parameters for config '{scenario_config.model_params}': {e}")
-        
-        # Get demand model parameters
-        try:
-            demand_model_params = self.model.data_handler.get_demand_model(
-                config=scenario_config.demand_sensitivity,
-                model_number=scenario_config.demand_model_number
+            forestry_variables = self.model.data_handler.get_forestry_variables(
+                config=component_config.forestry,
+                scenario_name=scenario_name
             )
         except Exception as e:
-            raise ValueError(f"Failed to load demand model parameters for config '{scenario_config.demand_sensitivity}' and model number {scenario_config.demand_model_number}: {e}")
+            raise ValueError(f"Failed to load forestry variables for config '{component_config.forestry}': {e}")
         
-        # Get stockpile parameters with explicit hierarchy
-        stockpile_params = {}
-
+        # Get model parameters with scenario-specific data
         try:
-            # STEP 1: Load base parameters from config file or defaults
-            base_params = {}
-            
-            # First try to get parameters from config file if specified
-            if scenario_config.stockpile:
-                try:
-                    config_params = self.model.data_handler.get_stockpile_parameters(scenario_config.stockpile)
-                    base_params = {
-                        'initial_stockpile': config_params['initial_stockpile'],
-                        'initial_surplus': config_params['initial_surplus'],
-                        'liquidity_factor': config_params['liquidity_factor'],
-                        'payback_period': config_params['payback_period'],
-                        'stockpile_usage_start_year': config_params['stockpile_usage_start_year'],
-                        'discount_rate': config_params['discount_rate'],
-                        'stockpile_reference_year': config_params.get('stockpile_reference_year', min(self.model.years) - 1)
-                    }
-                except Exception as e:
-                    print(f"Warning: Failed to load stockpile parameters from config '{scenario_config.stockpile}': {e}")
-                    print("Falling back to model parameters")
-            
-            # If no config specified or config loading failed, use model parameters
-            if not base_params:
-                param_mappings = {
-                    'initial_stockpile': 'stockpile_start',
-                    'initial_surplus': 'surplus_start',
-                    'liquidity_factor': 'liquidity_factor',
-                    'payback_period': 'payback_years',
-                    'stockpile_usage_start_year': 'start_year',
-                    'discount_rate': 'discount_rate'
-                }
-                
-                for scenario_name, model_param_name in param_mappings.items():
-                    value = model_params.get(model_param_name)
-                    if value is None:
-                        raise ValueError(f"Required parameter '{scenario_name}' not found in model parameters")
-                    
-                    # Convert to appropriate type
-                    if scenario_name in ['payback_period', 'stockpile_usage_start_year']:
-                        base_params[scenario_name] = int(value)
-                    else:
-                        base_params[scenario_name] = float(value)
-                
-                # Set default reference year
-                base_params['stockpile_reference_year'] = min(self.model.years) - 1
-            
-            # STEP 2: Override with any explicitly set parameters
-            param_list = ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
-                         'discount_rate', 'payback_period', 'stockpile_usage_start_year',
-                         'stockpile_reference_year']
-            
-            for param in param_list:
-                custom_value = getattr(scenario_config, param, None)
-                if custom_value is not None:
-                    # Validate parameter values before overriding
-                    if param == 'liquidity_factor' and not 0 <= custom_value <= 1:
-                        raise ValueError(f"liquidity_factor must be between 0 and 1, got {custom_value}")
-                    elif param == 'discount_rate' and not 0 <= custom_value <= 1:
-                        raise ValueError(f"discount_rate must be between 0 and 1, got {custom_value}")
-                    elif param == 'initial_stockpile' and custom_value < 0:
-                        raise ValueError(f"initial_stockpile cannot be negative, got {custom_value}")
-                    elif param == 'initial_surplus' and custom_value < 0:
-                        raise ValueError(f"initial_surplus cannot be negative, got {custom_value}")
-                    elif param == 'initial_surplus' and custom_value > base_params['initial_stockpile']:
-                        raise ValueError(f"initial_surplus ({custom_value}) cannot exceed initial_stockpile ({base_params['initial_stockpile']})")
-                    elif param == 'payback_period' and custom_value <= 0:
-                        raise ValueError(f"payback_period must be positive, got {custom_value}")
-                    elif param == 'stockpile_usage_start_year' and custom_value < self.model.config.start_year:
-                        raise ValueError(f"stockpile_usage_start_year cannot be before model start year {self.model.config.start_year}")
-                    
-                    # Use the custom parameter instead of the config/default value
-                    base_params[param] = custom_value
-            
-            # STEP 3: Set final parameters
-            stockpile_params = base_params
-            
+            model_params = self.model.data_handler.get_model_parameters(
+                config=component_config.model_params,
+                scenario_name=scenario_name
+            )
         except Exception as e:
-            raise ValueError(f"Failed to load stockpile parameters: {e}")
+            raise ValueError(f"Failed to load model parameters for config '{component_config.model_params}': {e}")
         
-        # Initialise components with proper error handling
+        # Get demand model parameters with scenario-specific data
         try:
-            from model.supply.stockpile import StockpileSupply
-            
+            demand_model_params = self.model.data_handler.get_demand_model(
+                config=component_config.demand_sensitivity,
+                model_number=getattr(component_config, 'demand_model_number', 2),
+                scenario_name=scenario_name
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to load demand model parameters for config '{component_config.demand_sensitivity}' and model number {getattr(component_config, 'demand_model_number', 2)}: {e}")
+        
+        # Get stockpile parameters, ensuring we at least try the central config
+        try:
+            stockpile_config = component_config.stockpile or "central"
+            stockpile_params = self.model.data_handler.get_stockpile_parameters(
+                config=stockpile_config,
+                overrides={
+                    'initial_stockpile': getattr(component_config, 'initial_stockpile', None),
+                    'initial_surplus': getattr(component_config, 'initial_surplus', None),
+                    'liquidity_factor': getattr(component_config, 'liquidity_factor', None),
+                    'discount_rate': getattr(component_config, 'discount_rate', None),
+                    'payback_period': getattr(component_config, 'payback_period', None),
+                    'stockpile_usage_start_year': getattr(component_config, 'stockpile_usage_start_year', None),
+                    'stockpile_reference_year': getattr(component_config, 'stockpile_reference_year', None)
+                },
+                scenario_name=scenario_name
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to load stockpile parameters for config '{stockpile_config}': {e}")
+        
+        # Import required component classes
+        from model.supply.stockpile import StockpileSupply
+        from model.supply.auction import AuctionSupply
+        from model.supply.industrial import IndustrialAllocation
+        from model.supply.forestry import ForestrySupply
+        from model.demand.emissions import EmissionsDemand
+        from model.demand.price_response import PriceResponse
+        
+        # Initialize components with proper error handling
+        try:
+            # Initialize StockpileSupply with proper parameters from config
             self.model.stockpile = StockpileSupply(
                 years=self.model.years,
-                extended_years=self.model.extended_years,
-                forestry_variables=forestry_variables,
-                **stockpile_params
+                extended_years=getattr(self.model, 'extended_years', None),
+                stockpile_params=stockpile_params,
+                forestry_variables=forestry_variables
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise stockpile component: {e}")
         
         try:
-            from model.supply.auction import AuctionSupply
-            
             self.model.auction = AuctionSupply(
                 years=self.model.years,
                 auction_data=auction_data
@@ -473,8 +435,6 @@ class ScenarioManager:
             raise ValueError(f"Failed to initialise auction component: {e}")
         
         try:
-            from model.supply.industrial import IndustrialAllocation
-            
             self.model.industrial = IndustrialAllocation(
                 years=self.model.years,
                 ia_data=ia_data
@@ -483,8 +443,6 @@ class ScenarioManager:
             raise ValueError(f"Failed to initialise industrial allocation component: {e}")
         
         try:
-            from model.supply.forestry import ForestrySupply
-            
             self.model.forestry = ForestrySupply(
                 years=self.model.years,
                 forestry_data=forestry_data
@@ -492,40 +450,16 @@ class ScenarioManager:
         except Exception as e:
             raise ValueError(f"Failed to initialise forestry component: {e}")
         
-        # Store component results for later use
-        self.model.auction_results = {}
-        self.model.industrial_results = {}
-        self.model.stockpile_results = {}
-        self.model.forestry_results = {}
-        self.model.price_response_results = {}
-        self.model.emissions_results = {}
-        
-        # Create place for base supply
-        self.model.base_supply = pd.Series(index=self.model.years, dtype=float)
-        
-        # Map scenario name to what EmissionsDemand expects
-        emissions_scenario = scenario_config.emissions
-        # The EmissionsDemand class expects specific scenario names
-        # If the scenario name is 'central', map it to 'central' for proper recognition
-        if emissions_scenario and emissions_scenario.lower() == 'central':
-            emissions_scenario = 'central'
-        
-        # Initialise emissions demand with emissions data
         try:
-            from model.demand.emissions import EmissionsDemand
-            
             self.model.emissions = EmissionsDemand(
                 years=self.model.years,
-                emissions_data=self.model.data_handler.get_emissions_data(config=emissions_scenario),
-                config_name=emissions_scenario
+                emissions_data=emissions_data,
+                config_name=component_config.emissions
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise emissions component: {e}")
         
-        # Initialise price response with demand model parameters
         try:
-            from model.demand.price_response import PriceResponse
-            
             self.model.price_response = PriceResponse(
                 years=self.model.years,
                 demand_model_params=demand_model_params
@@ -533,10 +467,8 @@ class ScenarioManager:
         except Exception as e:
             raise ValueError(f"Failed to initialise price response component: {e}")
         
-        # Important: Update config with relevant parameters for compatibility
-        self.model.config.liquidity_factor = float(stockpile_params['liquidity_factor'])
-        self.model.config.initial_stockpile = float(stockpile_params['initial_stockpile'])
-        self.model.config.initial_surplus = float(stockpile_params['initial_surplus'])
+        # Store scenario name for reference
+        self.model._active_scenario_name = scenario_name
 
     def set_price_control_config(self, scenario_name, config_name):
         """Set price control configuration for a specific scenario."""

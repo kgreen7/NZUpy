@@ -983,11 +983,33 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
     
     try:
         if hasattr(model, 'auctions') and isinstance(model.auctions, pd.DataFrame):
-            # Check column structure
-            column_tuples = [(scenario, 'base_supplied'), 
-                             (scenario, 'ccr1_supplied'), 
-                             (scenario, 'ccr2_supplied'), 
-                             (scenario, 'revenue')]
+            # Debug info - uncomment if needed
+            # print(f"Auctions DataFrame columns: {model.auctions.columns}")
+            # if isinstance(model.auctions.columns, pd.MultiIndex):
+            #     scenarios = model.auctions.columns.get_level_values('scenario').unique()
+            #     print(f"Scenarios in auctions DataFrame: {scenarios}")
+            
+            # Ensure the model.auctions has MultiIndex columns
+            if not isinstance(model.auctions.columns, pd.MultiIndex):
+                raise ValueError("Auctions DataFrame must have MultiIndex columns with (scenario, variable) levels")
+            
+            # Check that the requested scenario exists in the DataFrame
+            scenarios = model.auctions.columns.get_level_values('scenario').unique()
+            if scenario not in scenarios:
+                raise ValueError(f"Scenario '{scenario}' not found in auctions DataFrame. Available scenarios: {scenarios}")
+            
+            # Define the column tuples for this specific scenario
+            column_tuples = [
+                (scenario, 'base_supplied'),
+                (scenario, 'ccr1_supplied'),
+                (scenario, 'ccr2_supplied'),
+                (scenario, 'revenue')
+            ]
+            
+            # Check if all required columns exist
+            missing_columns = [col for col in column_tuples if col not in model.auctions.columns]
+            if missing_columns:
+                raise ValueError(f"Missing required columns in auctions DataFrame: {missing_columns}")
             
             # Extract data directly using column tuples
             base_supplied = model.auctions[column_tuples[0]]

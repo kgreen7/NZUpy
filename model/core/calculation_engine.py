@@ -587,30 +587,38 @@ class CalculationEngine:
                     growth_rates[year] = 0.0
         return growth_rates
     
-    def _calculate_base_supply(self):
-        """Calculate base supply components (excluding stockpile)."""
-        # Calculate auction supply
-        self.model.auction_results = self.model.auction.calculate(self.model.prices)
+    def _calculate_base_supply(self, scenario_name=None):
+        """
+        Calculate base supply components (excluding stockpile).
+        
+        Args:
+            scenario_name: Name of the scenario being calculated
+        """
+        # Calculate auction supply without scenario_name
+        self.model.auction_results = self.model.auction.calculate(
+            self.model.prices
+        )
         
         # Store the auction component itself for later access to input data
         self.model.auction_supply = self.model.auction
         
-        # Calculate industrial allocation
+        # Calculate industrial allocation without scenario_name
         self.model.industrial_results = self.model.industrial.calculate()
         
-        # Calculate forestry supply
-        self.model.forestry_results = self.model.forestry.calculate(self.model.prices)
+        # Calculate forestry supply without scenario_name
+        self.model.forestry_results = self.model.forestry.calculate(
+            self.model.prices
+        )
         
         # Calculate base supply (excluding stockpile)
         self.model.base_supply = {}
         for year in self.model.years:
             # For years before stockpile_usage_start_year, set base_supply equal to demand
-            # This ensures no artificial dip appears in the supply visualisation
             if hasattr(self.model.stockpile, 'stockpile_usage_start_year') and year < self.model.stockpile.stockpile_usage_start_year:
                 if year in self.model.demand.index:
                     self.model.base_supply[year] = self.model.demand[year]
                 else:
-                    # Fallback to the sum of components if demand is not available
+                    # Fallback to sum of components if demand not available
                     self.model.base_supply[year] = (
                         self.model.auction_results['total_auction'].get(year, 0) +
                         self.model.industrial_results['adjusted_allocation'].get(year, 0) +
@@ -622,10 +630,13 @@ class CalculationEngine:
                     self.model.industrial_results['adjusted_allocation'].get(year, 0) +
                     self.model.forestry_results['total_supply'].get(year, 0))
 
-    def _calculate_supply(self):
+    def _calculate_supply(self, scenario_name: Optional[str] = None):
         """
         Calculate all supply components (including stockpile) and total supply.
         
+        Args:
+            scenario_name: Name of the scenario being calculated
+            
         Note: This method should be used after base supply and stockpile
         have been calculated separately.
         """
@@ -644,9 +655,14 @@ class CalculationEngine:
             self.model.supply['stockpile']
         )
     
-    def _calculate_demand(self):
-        """Calculate demand based on emissions and price response."""
-        # Calculate price response
+    def _calculate_demand(self, scenario_name=None):
+        """
+        Calculate demand based on emissions and price response.
+        
+        Args:
+            scenario_name: Name of the scenario being calculated
+        """
+        # Calculate price response - no scenario_name
         price_response_results = self.model.price_response.calculate(
             self.model.prices, 
             self.model.emissions.emissions  # Use the emissions series directly
@@ -655,8 +671,10 @@ class CalculationEngine:
         # Get emissions reductions
         emissions_reduction = self.model.price_response.get_emissions_reduction()
         
-        # Calculate emissions with price response
-        emissions_results = self.model.emissions.calculate(emissions_reduction)
+        # Calculate emissions with price response - no scenario_name here either
+        emissions_results = self.model.emissions.calculate(
+            emissions_reduction
+        )
         
         # Total demand is the emissions after price response
         self.model.demand = emissions_results['total_demand']
