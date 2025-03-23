@@ -71,21 +71,18 @@ class HistoricalDataManager:
             return pd.DataFrame(columns=['central'])
     
     def _load_stockpile_start_data(self):
-        """Load stockpile start values from CSV file."""
+        """Load stockpile start values from stockpile_balance.csv file."""
         try:
-            file_path = self.parameters_dir / "stockpile_start.csv"
+            # Look for stockpile_balance.csv instead of stockpile_start.csv
+            file_path = self.parameters_dir / "stockpile_balance.csv"
             if not file_path.exists():
-                print(f"Warning: Stockpile start data file not found: {file_path}")
+                print(f"Warning: Stockpile balance data file not found: {file_path}")
                 return pd.DataFrame()
                 
             df = pd.read_csv(file_path)
             
-            # Check required columns
-            required_columns = ['Year', 'Config', 'Variable', 'Value']
-            if not all(col in df.columns for col in required_columns):
-                missing = [col for col in required_columns if col not in df.columns]
-                print(f"Warning: Stockpile start data missing columns: {missing}")
-                return pd.DataFrame()
+            # Filter for 'stockpile' and 'surplus' variables 
+            df = df[df['Variable'].isin(['stockpile', 'surplus'])]
             
             # Convert year to integer
             df['Year'] = df['Year'].astype(int)
@@ -93,7 +90,7 @@ class HistoricalDataManager:
             return df
             
         except Exception as e:
-            print(f"Warning: Could not load stockpile start data: {e}")
+            print(f"Warning: Could not load stockpile balance data: {e}")
             return pd.DataFrame()
     
     def _discover_and_load_historical_data(self):
