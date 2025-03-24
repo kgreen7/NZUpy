@@ -52,7 +52,7 @@ class HistoricalDataManager:
             return price_data
             
         except Exception as e:
-            print(f"Warning: Could not load price data: {e}")
+            #print(f"Warning: Could not load price data: {e}")
             return pd.DataFrame(columns=['central'])
     
     def _load_price_control_data(self):

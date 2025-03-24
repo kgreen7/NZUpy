@@ -267,7 +267,8 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                                     hovertemplate="Year: %{x}<br>Historical Nominal Price: $%{y:.1f}<extra></extra>"
                                 ))
                     except Exception as e:
-                        print(f"Warning: Could not add nominal price data: {e}")
+                        pass
+                        #print(f"Warning: Could not add nominal price data: {e}")
             else:
                 raise ValueError("Prices DataFrame does not have MultiIndex columns")
         else:

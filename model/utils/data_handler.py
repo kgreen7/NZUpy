@@ -647,7 +647,6 @@ class DataHandler:
             KeyError: If the specified configuration is not found in the data.
                      Available configurations can be found in industrial_allocation.csv.
         """
-        print(f"\n[DEBUG] DataHandler: Loading industrial allocation data for config '{config}'")
         
         # First check for scenario-specific data
         if scenario_name is not None and scenario_name in self.scenario_data:
