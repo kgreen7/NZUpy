@@ -73,8 +73,8 @@ class HistoricalDataManager:
     def _load_stockpile_start_data(self):
         """Load stockpile start values from stockpile_balance.csv file."""
         try:
-            # Look for stockpile_balance.csv instead of stockpile_start.csv
-            file_path = self.parameters_dir / "stockpile_balance.csv"
+            # Look for stockpile_balance.csv in the stockpile directory
+            file_path = self.data_dir / "inputs" / "stockpile" / "stockpile_balance.csv"
             if not file_path.exists():
                 print(f"Warning: Stockpile balance data file not found: {file_path}")
                 return pd.DataFrame()

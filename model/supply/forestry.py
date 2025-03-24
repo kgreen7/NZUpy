@@ -29,13 +29,16 @@ class ForestrySupply:
         Args:
             years: List of years for the model.
             forestry_data: DataFrame with forestry supply data indexed by year.
-                Required column: 'forestry_supply'
+                Required column: 'forestry_tradeable'
             use_manley_equation: Whether to use the Manley equation for dynamic forestry supply.
             manley_params: Parameters for the Manley equation if use_manley_equation is True.
                 Required keys: 'alpha', 'beta', 'gamma', 'initial_stock'
         """
         self.years = years
         self.forestry_data = forestry_data
+        
+        # Store the removals data directly
+        self.removals = forestry_data['forestry_tradeable']
         
         # Initialise results
         self.results = pd.DataFrame(
@@ -55,7 +58,7 @@ class ForestrySupply:
             DataFrame containing forestry supply by year.
         """
         # Calculate static supply from the input data
-        self.results['static_supply'] = self.forestry_data['forestry_supply']
+        self.results['static_supply'] = self.removals
         
         # Set total supply equal to static supply since we're not using Manley model
         self.results['total_supply'] = self.results['static_supply']

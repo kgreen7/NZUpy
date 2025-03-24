@@ -11,6 +11,7 @@ class ModelRunner:
         Returns:
             Dict containing the scenario results
         """
+        
         # Store active scenario index for parameter lookups
         self.model._active_scenario_index = scenario_index
         
@@ -20,7 +21,7 @@ class ModelRunner:
         # Set price control
         self.model._initialise_price_control()
         
-        # Re-initialize components with the scenario name to ensure scenario-specific data is used
+        # Initialize components for this scenario
         component_config = self.model.component_configs[scenario_index]
         self.model.scenario_manager._initialise_scenario_components(component_config, scenario_name)
         
@@ -37,9 +38,32 @@ class ModelRunner:
         Returns:
             Dictionary mapping scenario names to their results
         """
+        
+        # Store existing configurations before any potential reconfiguration
+        existing_configs = {}
+        if hasattr(self.model, 'component_configs') and self.model.component_configs:
+            for i, config in enumerate(self.model.component_configs):
+                existing_configs[i] = {
+                    'forestry': getattr(config, 'forestry', 'central'),
+                    'auctions': getattr(config, 'auctions', 'central'),
+                    'industrial_allocation': getattr(config, 'industrial_allocation', 'central'),
+                    'emissions': getattr(config, 'emissions', 'central'),
+                    'stockpile': getattr(config, 'stockpile', 'central')
+                }
+        
         # For Range scenario type, ensure scenarios are properly configured
         if hasattr(self.model, 'scenario_type') and self.model.scenario_type == 'Range':
-            self.model.configure_range_scenarios()
+            # Configure range scenarios if needed
+            if not hasattr(self.model, '_range_scenarios_configured'):
+                self.model.configure_range_scenarios()
+                self.model._range_scenarios_configured = True
+            
+            # Restore any custom configurations that were set after initial range configuration
+            if existing_configs:
+                for i in existing_configs:
+                    for component_type, value in existing_configs[i].items():
+                        if value != 'central':  # Only restore non-central configurations
+                            self.model.scenario_manager.use_config(i, component_type, value)
         
         # Use existing run logic
         if not self.model.validate():
@@ -52,9 +76,6 @@ class ModelRunner:
         for i, scenario_name in enumerate(self.model.scenarios):
             # Get the component configuration for this scenario
             component_config = self.model.component_configs[i]
-            
-            # Initialise components for this scenario - passing the scenario name
-            self.model.scenario_manager._initialise_scenario_components(component_config, scenario_name)
             
             # Run optimisation for this scenario
             result = self._run_scenario(i)  # Only pass the scenario index

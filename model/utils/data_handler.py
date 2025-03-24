@@ -227,19 +227,27 @@ class DataHandler:
             file_path = self.supply_dir / "industrial_allocation.csv"
             df = self._load_csv(file_path)
             
-            # Create DataFrame with baseline_allocation column
-            allocation_data = pd.DataFrame(index=df['Year'].unique())
-            allocation_data.index = allocation_data.index.astype(int)
-            allocation_data.index.name = 'year'
+            # Store the full DataFrame with all configs
+            self.industrial_allocation_data_full = df
             
-            # Add baseline_allocation column from central config
-            central_data = df[df['Config'] == 'central']
-            allocation_data['baseline_allocation'] = central_data.set_index('Year')['Value']
-            
-            # Add activity_adjustment column (default to 1.0)
-            allocation_data['activity_adjustment'] = 1.0
-            
-            self.industrial_allocation_data = allocation_data
+            # For standard loading mode, create a simplified DataFrame with just central config
+            if not self.use_config_loading:
+                # Create DataFrame with baseline_allocation column
+                allocation_data = pd.DataFrame(index=df['Year'].unique())
+                allocation_data.index = allocation_data.index.astype(int)
+                allocation_data.index.name = 'year'
+                
+                # Add baseline_allocation column from central config
+                central_data = df[df['Config'] == 'central']
+                allocation_data['baseline_allocation'] = central_data.set_index('Year')['Value']
+                
+                # Add activity_adjustment column (default to 1.0)
+                allocation_data['activity_adjustment'] = 1.0
+                
+                self.industrial_allocation_data = allocation_data
+            else:
+                # For config-based loading, use the full DataFrame
+                self.industrial_allocation_data = df.copy()
             
         except (FileNotFoundError, ValueError) as e:
             raise ValueError(f"Failed to load industrial allocation data: {e}")
@@ -267,18 +275,10 @@ class DataHandler:
             # Filter for forestry_tradeable data
             forestry_df = df[df['Variable'] == 'forestry_tradeable']
             
-            # Create DataFrame with forestry_supply column (rename from tradeable)
-            forestry_data = pd.DataFrame(
-                forestry_df.pivot(
-                    index='Year', 
-                    columns='Config',
-                    values='Value'
-                )
-            )
-            
-            # Rename the column to forestry_supply for the central config
-            if 'central' in forestry_data.columns:
-                forestry_data['forestry_supply'] = forestry_data['central']
+            # Create DataFrame with forestry_tradeable column
+            forestry_data = pd.DataFrame({
+                'forestry_tradeable': forestry_df[forestry_df['Config'] == 'central'].set_index('Year')['Value']
+            })
             
             # Convert index to int
             forestry_data.index = forestry_data.index.astype(int)
@@ -517,6 +517,12 @@ class DataHandler:
     def get_auction_data(self, config: Optional[str] = None, scenario_name: Optional[str] = None) -> pd.DataFrame:
         """
         Get auction data for a specific configuration and scenario.
+        This method is used by the scenario manager to get raw auction data.
+        
+        Parameter Loading Priority:
+        1. Scenario-specific data (if scenario_name provided)
+        2. Configuration-based data from auction.csv
+        3. Standard loading mode data (central config only)
         
         Args:
             config: The configuration name to load (e.g., 'central', 'high', 'low').
@@ -525,29 +531,49 @@ class DataHandler:
                          If provided, returns scenario-specific data.
         
         Returns:
-            DataFrame containing auction data for the specified configuration.
+            DataFrame with auction data for the specified configuration.
+            
+        Raises:
+            ValueError: If auction data is not loaded or if required files are missing.
+                      Check that auction.csv exists in the supply directory.
+            KeyError: If the specified configuration is not found in the data.
+                     Available configurations can be found in auction.csv.
         """
+        
         # First check for scenario-specific data
         if scenario_name is not None and scenario_name in self.scenario_data:
             scenario_data = self.scenario_data[scenario_name]
             if 'auction' in scenario_data:
                 return scenario_data['auction'].copy()
         
-        # If no scenario data found, fall back to config-based loading
-        if not self.use_config_loading or config is None:
-            # Return a copy of the data to prevent SettingWithCopyWarning
-            return self.auction_data.copy() if hasattr(self, 'auction_data') else pd.DataFrame()
+        # If no scenario data found, use config-based loading
+        if self.auctions_data is None or self.auctions_data.empty:
+            raise ValueError(
+                "Auction data not loaded. "
+                "Please ensure auction.csv exists in the supply directory "
+                f"({self.supply_dir}) and contains the required data."
+            )
         
-        if config not in self.auctions_data['Config'].unique():
-            raise ValueError(f"Invalid auction config: {config}")
+        # Filter for the specified config
+        config_lower = config.lower() if config else 'central'
         
-        # Filter for the scenario
-        scenario_data = self.auctions_data[
-            self.auctions_data['Config'].str.lower() == config
-        ]
+        # Use the full DataFrame for config-based loading
+        if self.use_config_loading:
+            filtered_data = self.auctions_data[
+                self.auctions_data['Config'].str.lower() == config_lower
+            ]
+        else:
+            # For standard loading mode, return the simplified DataFrame
+            return self.auction_data.copy()
         
-        if scenario_data.empty:
-            raise KeyError(f"No auction data found for config '{config}'")
+        if filtered_data.empty:
+            available_configs = self.auctions_data['Config'].unique()
+            raise KeyError(
+                f"No auction data found for config '{config}'. "
+                f"Available configurations are: {', '.join(available_configs)}. "
+                "Please check auction.csv for valid configurations."
+            )
+        
         
         # Map from CSV variable names to model column names
         var_map = {
@@ -562,7 +588,7 @@ class DataHandler:
         # Process each variable into a dictionary
         data_dict = {}
         for csv_var, model_col in var_map.items():
-            var_data = scenario_data[scenario_data['Variable'] == csv_var][['Year', 'Value']]
+            var_data = filtered_data[filtered_data['Variable'] == csv_var][['Year', 'Value']]
             if not var_data.empty:
                 # Convert Year to int
                 var_data['Year'] = var_data['Year'].astype(int)
@@ -587,6 +613,7 @@ class DataHandler:
         
         auction_df.index.name = 'year'
         
+        
         # Store scenario-specific data if scenario_name provided
         if scenario_name is not None:
             if scenario_name not in self.scenario_data:
@@ -600,6 +627,11 @@ class DataHandler:
         Get industrial allocation data for a specific configuration and scenario.
         This method is used by the scenario manager to get raw allocation data.
         
+        Parameter Loading Priority:
+        1. Scenario-specific data (if scenario_name provided)
+        2. Configuration-based data from industrial_allocation.csv
+        3. Standard loading mode data (central config only)
+        
         Args:
             config: The configuration name to load (e.g., 'central', 'high', 'low').
                    If None, returns the default configuration.
@@ -608,27 +640,49 @@ class DataHandler:
         
         Returns:
             DataFrame with industrial allocation data for the specified configuration.
+            
+        Raises:
+            ValueError: If industrial allocation data is not loaded or if required files are missing.
+                      Check that industrial_allocation.csv exists in the supply directory.
+            KeyError: If the specified configuration is not found in the data.
+                     Available configurations can be found in industrial_allocation.csv.
         """
+        print(f"\n[DEBUG] DataHandler: Loading industrial allocation data for config '{config}'")
+        
         # First check for scenario-specific data
         if scenario_name is not None and scenario_name in self.scenario_data:
             scenario_data = self.scenario_data[scenario_name]
             if 'industrial' in scenario_data:
                 return scenario_data['industrial'].copy()
         
-        # If no scenario data found, fall back to config-based loading
-        if not self.use_config_loading or config is None:
-            return self.industrial_allocation_data.copy() if hasattr(self, 'industrial_allocation_data') else pd.DataFrame()
-            
-        if config not in self.industrial_allocation_data['Config'].unique():
-            raise ValueError(f"Invalid allocation config: {config}")
-            
-        # Filter for the scenario
-        filtered_data = self.industrial_allocation_data[
-            self.industrial_allocation_data['Config'].str.lower() == config
-        ]
+        # If no scenario data found, use config-based loading
+        if self.industrial_allocation_data is None or self.industrial_allocation_data.empty:
+            raise ValueError(
+                "Industrial allocation data not loaded. "
+                "Please ensure industrial_allocation.csv exists in the supply directory "
+                f"({self.supply_dir}) and contains the required data."
+            )
+             
+        # Filter for the specified config
+        config_lower = config.lower() if config else 'central'
+        
+        # Use the full DataFrame for config-based loading
+        if self.use_config_loading:
+            filtered_data = self.industrial_allocation_data[
+                self.industrial_allocation_data['Config'].str.lower() == config_lower
+            ]
+        else:
+            # For standard loading mode, return the simplified DataFrame
+            return self.industrial_allocation_data.copy()
         
         if filtered_data.empty:
-            raise KeyError(f"No industrial allocation data found for config '{config}'")
+            available_configs = self.industrial_allocation_data['Config'].unique()
+            raise KeyError(
+                f"No industrial allocation data found for config '{config}'. "
+                f"Available configurations are: {', '.join(available_configs)}. "
+                "Please check industrial_allocation.csv for valid configurations."
+            )
+        
         
         # Create DataFrame with baseline_allocation column
         ia_data = pd.DataFrame({
@@ -824,31 +878,31 @@ class DataHandler:
         Returns:
             DataFrame containing forestry data for the specified configuration.
         """
+        
         # First check for scenario-specific data
         if scenario_name is not None and scenario_name in self.scenario_data:
             scenario_data = self.scenario_data[scenario_name]
             if 'forestry' in scenario_data:
                 return scenario_data['forestry'].copy()
         
-        # If no scenario data found, fall back to config-based loading
-        if not self.use_config_loading or config is None:
-            return self.forestry_data.copy() if hasattr(self, 'forestry_data') else pd.DataFrame()
-            
+        # If no scenario data found, use config-based loading
         if self.removals_data is None or self.removals_data.empty:
             raise ValueError("Removals data not loaded")
-            
+             
         # Filter for forestry_tradeable data and the specified config
+        config_lower = config.lower() if config else 'central'
         forestry_df = self.removals_data[
             (self.removals_data['Variable'] == 'forestry_tradeable') &
-            (self.removals_data['Config'].str.lower() == config.lower())
-        ][['Year', 'Value']]  # Only keep Year and Value columns
+            (self.removals_data['Config'].str.lower() == config_lower)
+        ]
         
         if forestry_df.empty:
             raise KeyError(f"No forestry data found for config '{config}'")
         
-        # Create DataFrame with forestry_supply column
+        
+        # Create DataFrame with forestry_tradeable column
         result_df = pd.DataFrame({
-            'forestry_supply': forestry_df.set_index('Year')['Value']
+            'forestry_tradeable': forestry_df.set_index('Year')['Value']
         })
         
         # Ensure year index is integer type
@@ -863,7 +917,6 @@ class DataHandler:
         
         return result_df
 
-    
     def get_forestry_variables(self, config: Optional[str] = None, scenario_name: Optional[str] = None) -> pd.DataFrame:
         """
         Get forestry variables data.
@@ -938,48 +991,76 @@ class DataHandler:
     def get_emissions_data(self, config: Optional[str] = None, scenario_name: Optional[str] = None) -> pd.DataFrame:
         """
         Get emissions data for a specific configuration and scenario.
+        This method is used by the scenario manager to get raw emissions data.
+        
+        Parameter Loading Priority:
+        1. Scenario-specific data (if scenario_name provided)
+        2. Configuration-based data from emissions.csv
+        3. Standard loading mode data (central config only)
         
         Args:
-            config: The configuration name to load (e.g., 'central', 'CCC_DP', 'CCC_CPR').
+            config: The configuration name to load (e.g., 'central', 'high', 'low').
                    If None, returns the default configuration.
             scenario_name: The name of the scenario to get data for.
                          If provided, returns scenario-specific data.
         
         Returns:
-            DataFrame containing emissions data with columns:
-                - Year: Year of the data
-                - Config: Configuration name
-                - Value: Emissions value for that year and config
+            DataFrame with emissions data for the specified configuration.
+            
+        Raises:
+            ValueError: If emissions data is not loaded or if required files are missing.
+                      Check that emissions.csv exists in the supply directory.
+            KeyError: If the specified configuration is not found in the data.
+                     Available configurations can be found in emissions.csv.
         """
+        
         # First check for scenario-specific data
         if scenario_name is not None and scenario_name in self.scenario_data:
             scenario_data = self.scenario_data[scenario_name]
             if 'emissions' in scenario_data:
                 return scenario_data['emissions'].copy()
         
-        # If no scenario data found, fall back to config-based loading
-        if not self.use_config_loading or config is None:
-            # For standard loading, return the raw emissions data
-            return self.emissions_baselines_data.copy() if hasattr(self, 'emissions_baselines_data') else pd.DataFrame()
-            
+        # If no scenario data found, use config-based loading
         if self.emissions_baselines_data is None or self.emissions_baselines_data.empty:
-            raise ValueError("Emissions baselines data not loaded")
+            raise ValueError(
+                "Emissions data not loaded. "
+                "Please ensure emissions_baselines.csv exists in the demand directory "
+                f"({self.demand_dir}) and contains the required data."
+            )
+        
+        # Filter for the specified config
+        config_lower = config.lower() if config else 'central'
+        
+        # Use the full DataFrame for config-based loading
+        if self.use_config_loading:
+            filtered_data = self.emissions_baselines_data[
+                self.emissions_baselines_data['Config'].str.lower() == config_lower
+            ]
             
-        # Filter for the specific config
-        emissions_data = self.emissions_baselines_data[
-            self.emissions_baselines_data['Config'].str.lower() == config.lower()
-        ]
-        
-        if emissions_data.empty:
-            raise KeyError(f"No emissions data found for config '{config}'")
-        
-        # Store scenario-specific data if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenario_data:
-                self.scenario_data[scenario_name] = {}
-            self.scenario_data[scenario_name]['emissions'] = emissions_data.copy()
-        
-        return emissions_data.copy()
+            if filtered_data.empty:
+                available_configs = self.emissions_baselines_data['Config'].unique()
+                raise KeyError(
+                    f"No emissions data found for config '{config}'. "
+                    f"Available configurations are: {', '.join(available_configs)}. "
+                    "Please check emissions_baselines.csv for valid configurations."
+                )
+            
+            
+            # Store scenario-specific data if scenario_name provided
+            if scenario_name is not None:
+                if scenario_name not in self.scenario_data:
+                    self.scenario_data[scenario_name] = {}
+                self.scenario_data[scenario_name]['emissions'] = filtered_data.copy()
+            
+            return filtered_data.copy()
+        else:
+            # For standard loading mode, create a DataFrame with Year and Value columns
+            emissions_data = pd.DataFrame({
+                'Year': self.emissions_data.index,
+                'Value': self.emissions_data['base_emissions'],
+                'Config': 'central'
+            })
+            return emissions_data
     
     def _map_demand_model_name(self, config: str) -> str:
         """
