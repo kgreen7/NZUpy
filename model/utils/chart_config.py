@@ -73,6 +73,11 @@ NZUPY_CHART_STYLE = {
         "reference_primary": "rgb(47, 47, 47)",      # Dark slate grey
         "reference_secondary": "rgb(108, 108, 108)",  # Lighter slate grey
         "reference_secondary_transparent": "rgba(108, 108, 108, 0.2)",
+        
+        # Auction volume colours
+        "auction_volume_dark": "rgb(17, 17, 17)",     # Darkest grey
+        "auction_volume_medium": "rgb(108, 108, 108)", # Medium grey
+        "auction_volume_light": "rgb(169, 169, 169)",  # Lightest grey
     },
     
     # Layout defaults

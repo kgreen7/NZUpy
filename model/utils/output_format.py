@@ -648,26 +648,37 @@ class OutputFormat:
             if scenario in self.results:
                 result = self.results[scenario]
                 
-                # Extract emissions component data
-                if 'model' in result and 'emissions_component' in result['model']:
-                    emissions_comp = result['model']['emissions_component']
-                    
-                    if isinstance(emissions_comp, pd.DataFrame):
+                # Extract emissions data - first try emissions_results, then emissions_component
+                emissions_data = None
+                if 'model' in result:
+                    if 'emissions_results' in result['model']:
+                        emissions_data = result['model']['emissions_results']
+                    elif 'emissions_component' in result['model']:
+                        emissions_data = result['model']['emissions_component']
+                
+                if emissions_data is not None:
+                    # Handle both DataFrame and EmissionsDemand object cases
+                    if isinstance(emissions_data, pd.DataFrame):
                         # Create proper multi-index columns
-                        if 'baseline_emissions' in emissions_comp:
-                            data[(scenario, 'baseline')] = emissions_comp['baseline_emissions']
-                        if 'total_demand' in emissions_comp:
-                            data[(scenario, 'emissions')] = emissions_comp['total_demand']
-                        elif 'price_adjusted_emissions' in emissions_comp:
-                            data[(scenario, 'emissions')] = emissions_comp['price_adjusted_emissions']
-                        
-                        # Calculate gross mitigation
-                        if 'baseline_emissions' in emissions_comp and (
-                                'total_demand' in emissions_comp or 
-                                'price_adjusted_emissions' in emissions_comp):
-                            baseline = emissions_comp['baseline_emissions']
-                            emissions = emissions_comp['total_demand'] if 'total_demand' in emissions_comp else emissions_comp['price_adjusted_emissions']
-                            data[(scenario, 'gross_mitigation')] = baseline - emissions
+                        if 'baseline_emissions' in emissions_data:
+                            data[(scenario, 'baseline')] = emissions_data['baseline_emissions']
+                        if 'total_demand' in emissions_data:
+                            data[(scenario, 'emissions')] = emissions_data['total_demand']
+                        elif 'price_adjusted_emissions' in emissions_data:
+                            data[(scenario, 'emissions')] = emissions_data['price_adjusted_emissions']
+                    elif hasattr(emissions_data, 'results'):
+                        # If it's an EmissionsDemand object, use its results DataFrame
+                        results_df = emissions_data.results
+                        if 'baseline_emissions' in results_df:
+                            data[(scenario, 'baseline')] = results_df['baseline_emissions']
+                        if 'total_demand' in results_df:
+                            data[(scenario, 'emissions')] = results_df['total_demand']
+                        elif 'price_adjusted_emissions' in results_df:
+                            data[(scenario, 'emissions')] = results_df['price_adjusted_emissions']
+                    
+                    # Calculate gross mitigation if we have both baseline and emissions
+                    if (scenario, 'baseline') in data and (scenario, 'emissions') in data:
+                        data[(scenario, 'gross_mitigation')] = data[(scenario, 'baseline')] - data[(scenario, 'emissions')]
                 
                 # Add payback units from stockpile component if available
                 if 'model' in result and 'stockpile_component' in result['model']:
@@ -717,7 +728,7 @@ class OutputFormat:
             component_config = self.model.component_configs[scenario_index]
             
             # Extract key input parameters
-            discount_rate = getattr(component_config, 'discount_rate', 0.05)
+            discount_rate = getattr(component_config, 'discount_rate', None)
             data[(scenario, 'discount_rate')] = pd.Series(discount_rate, index=self.years)
             
             data[(scenario, 'scenario_name')] = pd.Series(scenario, index=self.years)
@@ -826,14 +837,6 @@ class OutputFormat:
         for var in sorted(self._get_variables_by_category('inputs')):
             print(f"  self.inputs.xs('{var}', level='variable', axis=1) - {self._get_variable_description(var)}")
         
-        print("\nFor plotting examples:")
-        print("  import matplotlib.pyplot as plt")
-        print("  plt.figure(figsize=(10, 6))")
-        print("  plt.plot(model.prices.xs('central', axis=1))")
-        print("  plt.title('Carbon Price - central Scenario')")
-        print("  plt.xlabel('Year')")
-        print("  plt.ylabel('Price ($/tonne CO2-e)')")
-        print("  plt.grid(True)")
     
     def _get_variables_by_category(self, category):
         """Helper method to get variables for a specific category."""
@@ -848,8 +851,10 @@ class OutputFormat:
             'stockpile': ['balance', 'surplus_balance', 'non_surplus_balance', 'ratio_to_demand',
                         'units_used', 'surplus_used', 'non_surplus_used', 'forestry_held',
                         'forestry_surrender', 'forestry_contribution', 'without_forestry',
-                        'borrowed_units', 'payback_units', 'net_borrowing'],
-            'demand': ['baseline', 'emissions', 'gross_mitigation', 'net_mitigation'],
+                        'borrowed_units', 'payback_units', 'net_borrowing', 'cumulative_net_borrowing',
+                        'cumulative_forestry_additions'],
+            'demand': ['baseline_emissions', 'emissions', 'gross_mitigation', 'net_mitigation', 
+                      'payback_units', 'total_demand_with_paybacks'],
             'inputs': ['discount_rate', 'scenario_name', 'years', 'stockpile_start', 
                       'surplus_start', 'payback_period', 'liquidity_limit', 
                       'price_response_forward_years', 'demand_model']

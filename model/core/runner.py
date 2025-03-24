@@ -49,25 +49,18 @@ class ModelRunner:
         
         # Run each scenario
         for i, scenario_name in enumerate(self.model.scenarios):
-            print(f"\nRunning scenario {i}: {scenario_name}")
-            
             # Get the component configuration for this scenario
             component_config = self.model.component_configs[i]
             
-            # Initialise components for this scenario
-            self.model.scenario_manager._initialise_scenario_components(component_config)
+            # Initialise components for this scenario - PASSING THE SCENARIO NAME!
+            self.model.scenario_manager._initialise_scenario_components(component_config, scenario_name)
             
             # Run optimisation for this scenario
-            result = self._run_scenario_optimisation()
+            result = self._run_scenario(i, scenario_name)
             
             # Store results
             scenario_results[scenario_name] = result
             
-            # Print summary
-            print(f"Completed scenario {scenario_name}")
-            print(f"  Final price: ${result['final_price']:.2f}")
-            print(f"  Total gap: {result['total_gap']:,.0f}")
-        
         # Store all results
         self.model.results = scenario_results
         
@@ -150,13 +143,15 @@ class ModelRunner:
             'final_price': self.model.prices[self.model.years[-1]]
         }
 
-    def run_model(self, price_change_rate: Optional[float] = None, *, is_final_run: bool = False) -> Dict[str, Any]:
+    def run_model(self, price_change_rate: Optional[float] = None, *, scenario_name: Optional[str] = None, is_final_run: bool = False) -> Dict[str, Any]:
         """
         Run the model with a given price change rate.
         
         Args:
             price_change_rate: The price change rate to use.
                 If None, the current price_change_rate will be used.
+            scenario_name: Name of the scenario being run.
+                If provided, ensures scenario-specific data is used.
             is_final_run: Whether this is the final run after optimisation.
                 If True, forestry variables will be included.
         
@@ -166,11 +161,26 @@ class ModelRunner:
         if price_change_rate is not None:
             self.model.price_change_rate = price_change_rate
         
+        # Get the current scenario name if not provided
+        if scenario_name is None and hasattr(self.model, '_active_scenario_name'):
+            scenario_name = self.model._active_scenario_name
+        
+        # Initialize price control for this scenario
+        self.model._initialise_price_control()
+        
+        # Re-initialize components with the scenario name if available
+        if scenario_name is not None and hasattr(self.model, '_active_scenario_index'):
+            component_config = self.model.component_configs[self.model._active_scenario_index]
+            self.model.scenario_manager._initialise_scenario_components(component_config, scenario_name)
+        
+        # CRITICAL FIX: Explicitly calculate prices WITH price controls
+        self.model.calculation_engine._calculate_initial_prices()
+        
         # Set up the model run
         run_data = self._initialise_model_run()
         
         # Perform the iterative calculation until convergence
-        self._iterate_until_convergence(run_data)
+        self._iterate_until_convergence(run_data, scenario_name)
         
         # Apply post-convergence adjustments for visualisation
         self._apply_post_convergence_adjustments()
@@ -207,18 +217,19 @@ class ModelRunner:
         
         return run_data
     
-    def _iterate_until_convergence(self, run_data: Dict[str, Any]) -> None:
+    def _iterate_until_convergence(self, run_data: Dict[str, Any], scenario_name: Optional[str] = None) -> None:
         """
         Perform the iterative calculation process until convergence.
         
         Args:
             run_data: Dictionary with model run data
+            scenario_name: Name of the scenario being run
         """
         while not run_data['converged'] and run_data['iteration'] < run_data['max_iterations']:
             run_data['iteration'] += 1
             
-            # Perform a single iteration
-            stockpile_results, prev_prices, new_stockpile_usage = self._perform_single_iteration()
+            # Perform a single iteration with scenario name
+            stockpile_results, prev_prices, new_stockpile_usage = self._perform_single_iteration(scenario_name)
             
             # Check for convergence
             run_data['converged'] = self._check_convergence(
@@ -229,10 +240,19 @@ class ModelRunner:
             
             # Update stockpile usage for next iteration
             run_data['stockpile_usage'] = new_stockpile_usage
+        
+        # IMPORTANT: After last iteration, recalculate prices once more
+        # to ensure price controls are properly applied
+        if run_data['iteration'] >= run_data['max_iterations'] or run_data['converged']:
+            # Force recalculation of prices with controls
+            self.model.calculation_engine._calculate_initial_prices()
     
-    def _perform_single_iteration(self) -> Tuple[Dict[str, pd.Series], pd.Series, pd.Series]:
+    def _perform_single_iteration(self, scenario_name: Optional[str] = None) -> Tuple[Dict[str, pd.Series], pd.Series, pd.Series]:
         """
         Perform a single iteration of the model calculation.
+        
+        Args:
+            scenario_name: Name of the scenario being run
         
         Returns:
             Tuple of (stockpile_results, previous_prices, new_stockpile_usage)
@@ -243,8 +263,8 @@ class ModelRunner:
         # Calculate demand based on current prices
         self.model.calculation_engine._calculate_demand()
         
-        # Calculate base supply (without stockpile)
-        self.model.calculation_engine._calculate_base_supply()
+        # Calculate base supply (without stockpile) using scenario-specific data
+        self.model.calculation_engine._calculate_base_supply(scenario_name)
         
         # Calculate supply-demand balance
         stockpile_results = self._calculate_stockpile_contribution()
@@ -256,8 +276,8 @@ class ModelRunner:
         # Revise prices based on stockpile usage
         self.model.calculation_engine._revise_prices_based_on_stockpile(stockpile_results)
         
-        # Calculate final supply (including stockpile)
-        self.model.calculation_engine._calculate_supply()
+        # Calculate final supply (including stockpile) using scenario-specific data
+        self.model.calculation_engine._calculate_supply(scenario_name)
         
         return stockpile_results, prev_prices, new_stockpile_usage
     
@@ -347,11 +367,14 @@ class ModelRunner:
                 stockpile_results['payback_units'] = payback_units
                 stockpile_results['net_borrowing'] = payback_units - stockpile_results['borrowed_units']
         
+        # CRITICAL: Ensure the prices in results are the controlled prices
+        controlled_prices = self.model.prices.copy()
+        
         # Compile results dictionary
         return {
             'price_change_rate': self.model.price_change_rate,
             'gap': gap,
-            'prices': self.model.prices.copy(),
+            'prices': controlled_prices,  # This will be used in charts
             'unmodified_prices': getattr(self.model, 'unmodified_prices', self.model.prices.copy()),
             'supply': self.model.supply.copy(),
             'demand': self.model.demand.copy(),
@@ -415,16 +438,44 @@ class ModelRunner:
         self.model.emissions.set_scenario(original_scenario)
         
         return scenario_results
-    
-    def _run_scenario_optimisation(self) -> Dict[str, Any]:
+
+
+    def _run_scenario(self, scenario_index: int, scenario_name: str) -> Dict[str, Any]:
+        """
+        Run a single scenario.
+        
+        Args:
+            scenario_index: Index of the scenario to run
+            scenario_name: Name of the scenario being run
+            
+        Returns:
+            Dict containing the scenario results
+        """
+        # Store active scenario index and name for parameter lookups
+        self.model._active_scenario_index = scenario_index
+        self.model._active_scenario_name = scenario_name
+        
+        # Initialize price control for this scenario
+        self.model._initialise_price_control()
+        
+        # Run optimisation for this scenario
+        result = self._run_scenario_optimisation(scenario_name)
+        
+        # Clear active scenario info
+        self.model._active_scenario_index = None
+        self.model._active_scenario_name = None
+        
+        return result
+
+    def _run_scenario_optimisation(self, scenario_name: str) -> Dict[str, Any]:
         """
         Run optimisation for the current scenario configuration.
         
-        This method coordinates the optimisation process to find the optimal
-        price change rate, calculates the resulting gap, and compiles the results.
-        
+        Args:
+            scenario_name: Name of the scenario being optimised
+            
         Returns:
-            Dictionary with comprehensive results from optimisation
+            Dict containing optimisation and model results.
         """
         # Set up and run the optimiser
         optimiser = self._setup_optimiser()
@@ -435,7 +486,7 @@ class ModelRunner:
         gap = self.model.calculation_engine.calculate_gap(optimal_rate)
         
         # Run model with optimal rate for final, detailed results
-        model_results = self.run_model(optimal_rate, is_final_run=True)
+        model_results = self.run_model(optimal_rate, scenario_name=scenario_name, is_final_run=True)
         
         # Compile and return results
         return self._compile_optimisation_results(optimisation_results, gap, model_results)
@@ -456,9 +507,9 @@ class ModelRunner:
         )
     
     def _compile_optimisation_results(self, 
-                                     optimisation_results: Dict[str, Any],
-                                     gap: float,
-                                     model_results: Dict[str, Any]) -> Dict[str, Any]:
+                                    optimisation_results: Dict[str, Any],
+                                    gap: float,
+                                    model_results: Dict[str, Any]) -> Dict[str, Any]:
         """
         Compile comprehensive results from optimisation and model run.
         
@@ -477,16 +528,17 @@ class ModelRunner:
         results = {
             'price_change_rate': optimal_rate,
             'total_gap': gap,
-            'prices': self.model.prices.copy(),
-            'supply': self.model.supply.copy(),
-            'demand': self.model.demand.copy(),
-            'final_price': self.model.prices[self.model.config.end_year],
+            'prices': model_results['prices'],  # Use controlled prices from model_results
+            'unmodified_prices': model_results.get('unmodified_prices', model_results['prices']),
+            'supply': model_results['supply'],
+            'demand': model_results['demand'],
+            'final_price': model_results['prices'][self.model.config.end_year],
             'convergence_success': not optimisation_results.get('at_boundary', False),
             'optimisation_message': ''
         }
         
-        # Add detailed component results for advanced analysis
-        results['model'] = self._compile_component_results()
+        # Add detailed component results from model_results
+        results['model'] = model_results
         
         return results
     

@@ -29,7 +29,7 @@ def carbon_price_chart_with_uncertainty(model, start_year: Optional[int] = None,
     Args:
         model: NZUpy instance with range scenario results
         start_year: Optional start year for chart
-        end_year: Optional end year for chart
+        end_year: Optional end year for chart (defaults to model.end_year if not specified)
         
     Returns:
         Plotly figure object with uncertainty bands
@@ -67,9 +67,12 @@ def carbon_price_chart_with_uncertainty(model, start_year: Optional[int] = None,
     if missing_scenarios:
         raise ValueError(f"Missing required scenarios in prices DataFrame: {missing_scenarios}")
     
-    # Get the model's end year if not specified
+    # If end_year not specified, use the model's end_year attribute
     if end_year is None:
-        end_year = max(model.years)
+        if hasattr(model, 'end_year'):
+            end_year = model.end_year
+        elif hasattr(model, 'years') and len(model.years) > 0:
+            end_year = max(model.years)
     
     # Filter by years if specified
     years_to_include = prices_df.index
@@ -92,6 +95,10 @@ def carbon_price_chart_with_uncertainty(model, start_year: Optional[int] = None,
                 # Filter by start_year if specified
                 if start_year is not None:
                     historical_prices = historical_prices[historical_prices.index >= start_year]
+                
+                # Filter by end_year if specified
+                if end_year is not None:
+                    historical_prices = historical_prices[historical_prices.index <= end_year]
                 
                 # Add historical data trace
                 fig.add_trace(go.Scatter(
@@ -149,6 +156,10 @@ def carbon_price_chart_with_uncertainty(model, start_year: Optional[int] = None,
         yaxis=dict(
             rangemode='nonnegative',
             range=[0, None]  # Set minimum to 0, let max auto-scale
+        ),
+        xaxis=dict(
+            range=[start_year if start_year is not None else None, 
+                   end_year if end_year is not None else None]
         )
     )
     

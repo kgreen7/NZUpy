@@ -19,25 +19,18 @@ ConfigName = NewType('ConfigName', str)  # Name of a component input configurati
 
 class ScenarioManager:
     """
-    Manages model scenarios and their component configurations for the NZ ETS model.
+    Manages scenario configurations and parameter settings for the NZ ETS model.
     
-    This class handles:
-    - Defining different model scenarios (runs)
-    - Setting which input configuration to use for each component within a scenario
-    - Managing scenario-specific parameters
-    
-    Key concepts:
-    - A scenario represents a complete model run with specific settings
-    - Each component within a scenario uses a particular input configuration
-    - Configurations are predefined sets of inputs (e.g., 'central', 'high', 'low')
+    This class handles the creation and management of different scenarios,
+    including their configurations and parameter settings.
     """
     
-    def __init__(self, model):
+    def __init__(self, model: 'model.core.base_model.NZUpy'):
         """
         Initialise the scenario manager.
         
         Args:
-            model: The parent NZUpy instance
+            model: Reference to the parent NZUpy model instance
         """
         self.model = model
     
@@ -53,21 +46,21 @@ class ScenarioManager:
         
         Args:
             component_type: Type of component to list configs for ('emissions', 'auction', 
-                        'industrial', 'forestry', 'demand_model')
+                        'industrial', 'forestry', 'demand_model', 'stockpile')
         
         Returns:
             List of available configuration names (e.g., ['central', 'high', 'low'])
         """
         return self.model.data_handler.list_available_configs(component_type)
     
-    def use_config(self, scenario_index: int, component_type: str, config_name: str, model_number: Optional[int] = None) -> 'model.NZUpy':
+    def use_config(self, scenario_index: int, component_type: str, config_name: str, model_number: Optional[int] = None) -> 'model.core.base_model.NZUpy':
         """
-        Set which input configuration a component should use within a specific model scenario.
+        Use a specific configuration for a component in a scenario.
         
         Args:
-            scenario_index: Index of the model scenario to modify
+            scenario_index: Index of the scenario to modify
             component_type: Type of component to configure ('emissions', 'auction', etc.)
-            config_name: Name of the input configuration to use (e.g., 'central', 'high', 'low')
+            config_name: Name of the configuration to use
             model_number: Optional model number for demand models
             
         Returns:
@@ -75,36 +68,55 @@ class ScenarioManager:
         """
         # Validate that the model has been primed
         if not self.model._primed:
-            raise ValueError("Model must be primed before using configs. Call prime() first.")
+            raise ValueError("Model must be primed before using configurations. Call prime() first.")
         
         # Validate scenario index
         if scenario_index < 0 or scenario_index >= len(self.model.scenarios):
             raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.model.scenarios)-1}")
         
-        # Get the component configuration
-        component_config = self.model.component_configs[scenario_index]
+        # Get scenario name for display
+        scenario_name = self.model.scenarios[scenario_index]
         
-        # Set the configuration based on component type
-        if component_type == 'emissions':
-            component_config.emissions = config_name
+        # Handle different component types
+        if component_type == 'stockpile':
+            # Set the stockpile configuration just like other components
+            self.model.component_configs[scenario_index].stockpile = config_name
+            #print(f"Using {config_name} config for stockpile in scenario {scenario_index} ({scenario_name})")
+            
+            
+        elif component_type == 'emissions':
+            self.model.component_configs[scenario_index].emissions = config_name
+            #print(f"Set emissions configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'auction':
-            component_config.auctions = config_name
+            self.model.component_configs[scenario_index].auctions = config_name
+            #print(f"Set auction configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'industrial':
-            component_config.industrial_allocation = config_name
+            self.model.component_configs[scenario_index].industrial_allocation = config_name
+            #print(f"Set industrial allocation configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'forestry':
-            component_config.forestry = config_name
+            self.model.component_configs[scenario_index].forestry = config_name
+            #print(f"Set forestry configuration to '{config_name}' for scenario '{scenario_name}'")
+            
         elif component_type == 'demand_model':
-            component_config.demand_sensitivity = config_name
             if model_number is not None:
-                component_config.demand_model_number = model_number
+                if model_number not in [1, 2]:
+                    raise ValueError(f"Invalid demand model number: {model_number}. Valid options: 1, 2")
+                self.model.component_configs[scenario_index].demand_model_number = model_number
+                #print(f"Set demand model number to {model_number} for scenario '{scenario_name}'")
+            
+            if config_name:
+                self.model.component_configs[scenario_index].demand_sensitivity = config_name
+                #print(f"Set demand sensitivity to '{config_name}' for scenario '{scenario_name}'")
+            
         else:
-            raise ValueError(f"Invalid component type: {component_type}")
-        
-        print(f"Using {config_name} config for {component_type} in scenario {scenario_index} ({self.model.scenarios[scenario_index]})")
+            raise ValueError(f"Unknown component type: '{component_type}'. Valid options: emissions, auction, industrial, forestry, demand_model")
         
         return self.model
     
-    def use_central_configs(self, scenario_index: int) -> 'model.NZUpy':
+    def use_central_configs(self, scenario_index: int) -> 'model.core.base_model.NZUpy':
         """
         Use central input configurations for all components in a specific model scenario.
         
@@ -132,15 +144,15 @@ class ScenarioManager:
         self.use_config(scenario_index, 'industrial', 'central')
         self.use_config(scenario_index, 'forestry', 'central')
         self.use_config(scenario_index, 'demand_model', 'central', model_number=2)
+        self.use_config(scenario_index, 'stockpile', 'central')  # Add stockpile config
         
         # Also set model_params to central
         self.model.component_configs[scenario_index].model_params = "central"
         
-        print(f"Using central configs for all components in model scenario {scenario_index} ({self.model.scenarios[scenario_index]})")
         
         return self.model
 
-    def set_parameter(self, scenario_index: int, parameter_name: str, value: Any) -> 'model.NZUpy':
+    def set_parameter(self, scenario_index: int, parameter_name: str, value: Any) -> 'model.core.base_model.NZUpy':
         """
         Set a model parameter for a specific scenario run.
         
@@ -197,7 +209,7 @@ class ScenarioManager:
         
         return self.model
     
-    def define_scenario_type(self, scenario_type: str = 'Single') -> 'model.NZUpy':
+    def define_scenario_type(self, scenario_type: str = 'Single') -> 'model.core.base_model.NZUpy':
         """
         Define the type of scenario analysis to perform.
         
@@ -244,7 +256,7 @@ class ScenarioManager:
         print(f"Scenario type set to '{scenario_type}'")
         return self.model
 
-    def set_demand_model(self, model_number: int) -> 'model.NZUpy':
+    def set_demand_model(self, model_number: int) -> 'model.core.base_model.NZUpy':
         """
         Set which demand model number to use for all scenarios.
         
@@ -273,7 +285,7 @@ class ScenarioManager:
         print(f"Demand model set to {model_number}")
         return self.model
 
-    def configure_range_scenarios(self) -> 'model.NZUpy':
+    def configure_range_scenarios(self) -> 'model.core.base_model.NZUpy':
         """
         Configure scenarios for range/sensitivity analysis.
         
@@ -284,6 +296,7 @@ class ScenarioManager:
         Returns:
             NZUpy for method chaining
         """
+        
         if not hasattr(self.model, 'scenario_type') or self.model.scenario_type != 'Range':
             raise ValueError("This method should only be called for 'Range' scenario type")
         
@@ -293,122 +306,233 @@ class ScenarioManager:
         # Default to model 2 if not specified
         model_number = getattr(self.model, 'demand_model_number', 2)
         
+        # Store existing configurations if they exist
+        existing_configs = {}
+        if hasattr(self.model, 'component_configs') and self.model.component_configs:
+            for i, config in enumerate(self.model.component_configs):
+                existing_configs[i] = {
+                    'forestry': getattr(config, 'forestry', 'central'),
+                    'auctions': getattr(config, 'auctions', 'central'),
+                    'industrial_allocation': getattr(config, 'industrial_allocation', 'central'),
+                    'emissions': getattr(config, 'emissions', 'central'),
+                    'stockpile': getattr(config, 'stockpile', 'central'),
+                    'demand_sensitivity': getattr(config, 'demand_sensitivity', 'central'),
+                    'demand_model_number': getattr(config, 'demand_model_number', 2)
+                }
+        
         # Configure each scenario
         for i, scenario in enumerate(self.model.scenarios):
             # Start with central settings for all components
             self.use_central_configs(i)
             
+            # Restore existing configurations if they exist
+            if i in existing_configs:
+                for component_type, value in existing_configs[i].items():
+                    if value != 'central':  # Only restore non-central configurations
+                        if component_type == 'demand_model_number':
+                            self.use_config(i, 'demand_model', 'central', model_number=value)
+                        elif component_type == 'demand_sensitivity':
+                            self.use_config(i, 'demand_model', value)
+                        else:
+                            self.use_config(i, component_type, value)
+            
             # Then override the demand model to match the scenario name
             self.use_config(i, 'demand_model', scenario, model_number=model_number)
+            
+            # Verify final configuration
+            config = self.model.component_configs[i]
+
+        # Mark range scenarios as configured
+        self.model._range_scenarios_configured = True
         
-        print(f"Configured all scenarios for 'Range' run with demand model {model_number}")
         return self.model
         
-    def _initialise_scenario_components(self, scenario_config):
+    def _initialise_scenario_components(self, component_config, scenario_name=None):
         """
         Initialise components for a specific scenario with their input configurations.
         
         Args:
-            scenario_config: Configuration object containing which input config
+            component_config: Configuration object containing which input config
                            each component should use in this scenario
+            scenario_name: The name of the scenario being initialised (for scenario-specific data)
         """
-        # Get data for current scenarios
+        
+        # Track component modifications through scenario_name
+        # This ensures we properly handle configuration changes through use_config() calls
+        # First, check if the scenario has been initialized before - if so, preserve configs
+        if hasattr(self.model, '_scenario_configs') and scenario_name in self.model._scenario_configs:
+            stored_config = self.model._scenario_configs[scenario_name]
+            # Preserve modified component configurations
+            for component_type in ['forestry', 'auctions', 'industrial_allocation', 'emissions', 'stockpile']:
+                if hasattr(component_config, component_type) and hasattr(stored_config, component_type):
+                    current_value = getattr(component_config, component_type)
+                    stored_value = getattr(stored_config, component_type)
+                    # Only update if explicitly changed from default
+                    if current_value != 'central' and current_value != stored_value:
+                        setattr(stored_config, component_type, current_value)
+            # Use the stored config with preserved modifications
+            component_config = stored_config
+        else:
+            # Initialize tracking dict if not exists
+            if not hasattr(self.model, '_scenario_configs'):
+                self.model._scenario_configs = {}
+            # Store the current config for future reference
+            self.model._scenario_configs[scenario_name] = component_config
+        
+        # Get data for current scenarios, using scenario-specific data where available
         try:
-            auction_data = self.model.data_handler.get_auction_data(config=scenario_config.auctions)
+            # First check if we have scenario-specific auction data
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'auction' in self.model.data_handler.scenario_data[scenario_name]):
+                auction_data = self.model.data_handler.scenario_data[scenario_name]['auction']
+            else:
+                # Fall back to config-based data
+                auction_data = self.model.data_handler.get_auction_data(
+                    config=component_config.auctions,
+                    scenario_name=scenario_name
+                )
         except Exception as e:
-            raise ValueError(f"Failed to load auction data for config '{scenario_config.auctions}': {e}")
+            raise ValueError(f"Failed to load auction data for config '{component_config.auctions}': {e}")
             
         try:
-            ia_data = self.model.data_handler.get_industrial_allocation_data(config=scenario_config.industrial_allocation)
+            # First check if we have scenario-specific industrial allocation data
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'industrial' in self.model.data_handler.scenario_data[scenario_name]):
+                ia_data = self.model.data_handler.scenario_data[scenario_name]['industrial']
+            else:
+                # Fall back to config-based data
+                ia_data = self.model.data_handler.get_industrial_allocation_data(
+                    config=component_config.industrial_allocation,
+                    scenario_name=scenario_name
+                )
         except Exception as e:
-            raise ValueError(f"Failed to load industrial allocation data for config '{scenario_config.industrial_allocation}': {e}")
+            raise ValueError(f"Failed to load industrial allocation data for config '{component_config.industrial_allocation}': {e}")
             
         try:
-            forestry_data = self.model.data_handler.get_forestry_data(config=scenario_config.forestry)
+            # First check if we have scenario-specific forestry data
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'forestry' in self.model.data_handler.scenario_data[scenario_name]):
+                forestry_data = self.model.data_handler.scenario_data[scenario_name]['forestry']
+            else:
+                # Load forestry data using the explicitly set config
+                forestry_data = self.model.data_handler.get_forestry_data(
+                    config=component_config.forestry,
+                    scenario_name=scenario_name
+                )
+                
+                # Ensure this data persists by explicitly storing it
+                if scenario_name not in self.model.data_handler.scenario_data:
+                    self.model.data_handler.scenario_data[scenario_name] = {}
+                self.model.data_handler.scenario_data[scenario_name]['forestry'] = forestry_data.copy()
         except Exception as e:
-            raise ValueError(f"Failed to load forestry data for config '{scenario_config.forestry}': {e}")
+            raise ValueError(f"Failed to load forestry data for config '{component_config.forestry}': {e}")
             
         try:
-            emissions_data = self.model.data_handler.get_emissions_data(config=scenario_config.emissions)
+            # First check if we have scenario-specific emissions data
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'emissions' in self.model.data_handler.scenario_data[scenario_name]):
+                emissions_data = self.model.data_handler.scenario_data[scenario_name]['emissions']
+            else:
+                # Fall back to config-based data
+                emissions_data = self.model.data_handler.get_emissions_data(
+                    config=component_config.emissions,
+                    scenario_name=scenario_name
+                )
         except Exception as e:
-            raise ValueError(f"Failed to load emissions data for config '{scenario_config.emissions}': {e}")
+            raise ValueError(f"Failed to load emissions data for config '{component_config.emissions}': {e}")
         
         # Get forestry variables data
         try:
-            forestry_variables = self.model.data_handler.get_forestry_variables(config=scenario_config.forestry)
+            # First check if we have scenario-specific forestry variables
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'forestry_variables' in self.model.data_handler.scenario_data[scenario_name]):
+                forestry_variables = self.model.data_handler.scenario_data[scenario_name]['forestry_variables']
+            else:
+                # Fall back to config-based data
+                forestry_variables = self.model.data_handler.get_forestry_variables(
+                    config=component_config.forestry,
+                    scenario_name=scenario_name
+                )
         except Exception as e:
-            raise ValueError(f"Failed to load forestry variables for config '{scenario_config.forestry}': {e}")
+            raise ValueError(f"Failed to load forestry variables for config '{component_config.forestry}': {e}")
         
-        # Get model parameters
+        # Get model parameters with scenario-specific data
         try:
-            model_params = self.model.data_handler.get_model_parameters(config=scenario_config.model_params)
+            # First check if we have scenario-specific model parameters
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'model_params' in self.model.data_handler.scenario_data[scenario_name]):
+                model_params = self.model.data_handler.scenario_data[scenario_name]['model_params']
+            else:
+                # Fall back to config-based data
+                model_params = self.model.data_handler.get_model_parameters(
+                    config=component_config.model_params,
+                    scenario_name=scenario_name
+                )
         except Exception as e:
-            raise ValueError(f"Failed to load model parameters for config '{scenario_config.model_params}': {e}")
+            raise ValueError(f"Failed to load model parameters for config '{component_config.model_params}': {e}")
         
-        # Get demand model parameters
+        # Get demand model parameters with scenario-specific data
         try:
-            demand_model_params = self.model.data_handler.get_demand_model(
-                config=scenario_config.demand_sensitivity,
-                model_number=scenario_config.demand_model_number
-            )
+            # First check if we have scenario-specific demand model parameters
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'demand_model' in self.model.data_handler.scenario_data[scenario_name]):
+                demand_model_params = self.model.data_handler.scenario_data[scenario_name]['demand_model']
+            else:
+                # Fall back to config-based data
+                demand_model_params = self.model.data_handler.get_demand_model(
+                    config=component_config.demand_sensitivity,
+                    model_number=getattr(component_config, 'demand_model_number', 2),
+                    scenario_name=scenario_name
+                )
         except Exception as e:
-            raise ValueError(f"Failed to load demand model parameters for config '{scenario_config.demand_sensitivity}' and model number {scenario_config.demand_model_number}: {e}")
+            raise ValueError(f"Failed to load demand model parameters for config '{component_config.demand_sensitivity}' and model number {getattr(component_config, 'demand_model_number', 2)}: {e}")
         
-        # Get stockpile parameters with explicit hierarchy
-        stockpile_params = {}
-        
-        # Define parameter mappings (scenario_name: model_params_name)
-        param_mappings = {
-            'initial_stockpile': 'stockpile_start',
-            'initial_surplus': 'surplus_start',
-            'liquidity_factor': 'liquidity_factor',
-            'payback_period': 'payback_years',
-            'stockpile_usage_start_year': 'start_year',
-            'discount_rate': 'discount_rate'
-        }
-        
-        # Process each parameter following the hierarchy
-        for scenario_name, model_param_name in param_mappings.items():
-            # First try scenario config
-            value = getattr(scenario_config, scenario_name, None)
-            
-            # If not in scenario config, try model parameters
-            if value is None:
-                value = model_params.get(model_param_name)
-                if value is None:
-                    raise ValueError(f"Required parameter '{scenario_name}' not found in scenario config or model parameters")
-                
-                # Convert to appropriate type
-                if scenario_name in ['payback_period', 'stockpile_usage_start_year']:
-                    value = int(value)
-                else:
-                    value = float(value)
-            
-            stockpile_params[scenario_name] = value
-        
-        # Special case for reference year as it has a calculated default
-        stockpile_params['stockpile_reference_year'] = getattr(
-            scenario_config, 
-            'stockpile_reference_year', 
-            min(self.model.years) - 1  # Default to year before start year
-        )
-        
-        # Initialise components with proper error handling
+        # Get stockpile parameters, ensuring we at least try the central config
         try:
-            from model.supply.stockpile import StockpileSupply
-            
+            stockpile_config = component_config.stockpile or "central"
+            # First check if we have scenario-specific stockpile parameters
+            if (scenario_name in self.model.data_handler.scenario_data and 
+                'stockpile' in self.model.data_handler.scenario_data[scenario_name]):
+                stockpile_params = self.model.data_handler.scenario_data[scenario_name]['stockpile']
+            else:
+                # Fall back to config-based data
+                stockpile_params = self.model.data_handler.get_stockpile_parameters(
+                    config=stockpile_config,
+                    overrides={
+                        'initial_stockpile': getattr(component_config, 'initial_stockpile', None),
+                        'initial_surplus': getattr(component_config, 'initial_surplus', None),
+                        'liquidity_factor': getattr(component_config, 'liquidity_factor', None),
+                        'discount_rate': getattr(component_config, 'discount_rate', None),
+                        'payback_period': getattr(component_config, 'payback_period', None),
+                        'stockpile_usage_start_year': getattr(component_config, 'stockpile_usage_start_year', None),
+                        'stockpile_reference_year': getattr(component_config, 'stockpile_reference_year', None)
+                    },
+                    scenario_name=scenario_name
+                )
+        except Exception as e:
+            raise ValueError(f"Failed to load stockpile parameters for config '{stockpile_config}': {e}")
+        
+        # Import required component classes
+        from model.supply.stockpile import StockpileSupply
+        from model.supply.auction import AuctionSupply
+        from model.supply.industrial import IndustrialAllocation
+        from model.supply.forestry import ForestrySupply
+        from model.demand.emissions import EmissionsDemand
+        from model.demand.price_response import PriceResponse
+        
+        # Initialize components with proper error handling
+        try:
+            # Initialize StockpileSupply with proper parameters from config
             self.model.stockpile = StockpileSupply(
                 years=self.model.years,
-                extended_years=self.model.extended_years,
-                forestry_variables=forestry_variables,
-                **stockpile_params
+                extended_years=getattr(self.model, 'extended_years', None),
+                stockpile_params=stockpile_params,
+                forestry_variables=forestry_variables
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise stockpile component: {e}")
         
         try:
-            from model.supply.auction import AuctionSupply
-            
             self.model.auction = AuctionSupply(
                 years=self.model.years,
                 auction_data=auction_data
@@ -417,8 +541,6 @@ class ScenarioManager:
             raise ValueError(f"Failed to initialise auction component: {e}")
         
         try:
-            from model.supply.industrial import IndustrialAllocation
-            
             self.model.industrial = IndustrialAllocation(
                 years=self.model.years,
                 ia_data=ia_data
@@ -427,8 +549,6 @@ class ScenarioManager:
             raise ValueError(f"Failed to initialise industrial allocation component: {e}")
         
         try:
-            from model.supply.forestry import ForestrySupply
-            
             self.model.forestry = ForestrySupply(
                 years=self.model.years,
                 forestry_data=forestry_data
@@ -436,40 +556,16 @@ class ScenarioManager:
         except Exception as e:
             raise ValueError(f"Failed to initialise forestry component: {e}")
         
-        # Store component results for later use
-        self.model.auction_results = {}
-        self.model.industrial_results = {}
-        self.model.stockpile_results = {}
-        self.model.forestry_results = {}
-        self.model.price_response_results = {}
-        self.model.emissions_results = {}
-        
-        # Create place for base supply
-        self.model.base_supply = pd.Series(index=self.model.years, dtype=float)
-        
-        # Map scenario name to what EmissionsDemand expects
-        emissions_scenario = scenario_config.emissions
-        # The EmissionsDemand class expects specific scenario names
-        # If the scenario name is 'central', map it to 'central' for proper recognition
-        if emissions_scenario and emissions_scenario.lower() == 'central':
-            emissions_scenario = 'central'
-        
-        # Initialise emissions demand with emissions data
         try:
-            from model.demand.emissions import EmissionsDemand
-            
             self.model.emissions = EmissionsDemand(
                 years=self.model.years,
-                emissions_data=self.model.data_handler.get_emissions_data(config=emissions_scenario),
-                config_name=emissions_scenario
+                emissions_data=emissions_data,
+                config_name=component_config.emissions
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise emissions component: {e}")
         
-        # Initialise price response with demand model parameters
         try:
-            from model.demand.price_response import PriceResponse
-            
             self.model.price_response = PriceResponse(
                 years=self.model.years,
                 demand_model_params=demand_model_params
@@ -477,7 +573,17 @@ class ScenarioManager:
         except Exception as e:
             raise ValueError(f"Failed to initialise price response component: {e}")
         
-        # Important: Update config with relevant parameters for compatibility
-        self.model.config.liquidity_factor = float(stockpile_params['liquidity_factor'])
-        self.model.config.initial_stockpile = float(stockpile_params['initial_stockpile'])
-        self.model.config.initial_surplus = float(stockpile_params['initial_surplus'])
+        # Store scenario name for reference
+        self.model._active_scenario_name = scenario_name
+
+    def set_price_control_config(self, scenario_name, config_name):
+        """Set price control configuration for a specific scenario."""
+        
+        # Get the scenario index
+        scenario_index = self.model.scenarios.index(scenario_name)
+
+        # Store the config name in the scenario's component config
+        self.model.component_configs[scenario_index].price_control_config = config_name
+
+        # Verify the setting
+        stored_config = getattr(self.model.component_configs[scenario_index], 'price_control_config', None)

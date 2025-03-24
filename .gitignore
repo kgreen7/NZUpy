@@ -174,10 +174,14 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Visual Studio Code
+.vscode/
+.cusorrules
+codebase.md 
+
 #Custom files
 *.html
 *.png
-*.pdf
 *.xlsx
 *.xls
 *.docx

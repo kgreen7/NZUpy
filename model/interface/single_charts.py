@@ -151,7 +151,7 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
         model: NZUpy instance
         scenario: Optional scenario name (defaults to first scenario)
         start_year: Optional start year for chart
-        end_year: Optional end year for chart
+        end_year: Optional end year for chart (defaults to model.end_year if not specified)
         show_nominal: Whether to show nominal prices in addition to real prices
         
     Returns:
@@ -165,11 +165,17 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
     if scenario is None and hasattr(model, 'scenarios') and model.scenarios:
         scenario = model.scenarios[0]
     
+    # If end_year not specified, use the model's end_year attribute
+    if end_year is None:
+        if hasattr(model, 'end_year'):
+            end_year = model.end_year
+        elif hasattr(model, 'years') and len(model.years) > 0:
+            end_year = max(model.years)
+    
     # Create figure
     fig = go.Figure()
     
     try:
-        # Print available columns to debug
         if hasattr(model, 'prices') and isinstance(model.prices, pd.DataFrame):
             if isinstance(model.prices.columns, pd.MultiIndex):
                 # Extract real price data
@@ -261,7 +267,8 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
                                     hovertemplate="Year: %{x}<br>Historical Nominal Price: $%{y:.1f}<extra></extra>"
                                 ))
                     except Exception as e:
-                        print(f"Warning: Could not add nominal price data: {e}")
+                        pass
+                        #print(f"Warning: Could not add nominal price data: {e}")
             else:
                 raise ValueError("Prices DataFrame does not have MultiIndex columns")
         else:
@@ -283,10 +290,6 @@ def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Option
     
     # Update layout
     title_suffix = " (Real & Nominal)" if show_nominal else " (Real 2023 NZD)"
-    
-    # If end_year not specified, use the maximum year from the model data
-    if end_year is None and hasattr(model, 'end_year'):
-        end_year = model.end_year
     
     fig.update_layout(
         title=f"Carbon Price Projection{title_suffix}",
@@ -608,7 +611,7 @@ def supply_components_chart(model, scenario=None, start_year=None, end_year=None
                     fig.update_layout(
                         title=f"Supply Components - {scenario}",
                         xaxis_title="Year",
-                        yaxis_title="Units (kt CO₂-e)",
+                        yaxis_title="NZUs (thousands) /Kt CO₂-e)",
                         yaxis=dict(
                             rangemode='nonnegative',
                             range=[0, None]  # Set minimum to 0, let max auto-scale
@@ -702,7 +705,7 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                         mode='lines',
                         line=dict(width=1, color=NZUPY_CHART_STYLE['colors']['diverging_09_bold']),
                         stackgroup='one',
-                        fillcolor=NZUPY_CHART_STYLE['colors']['diverging_09_transparent'],
+                        fillcolor=NZUPY_CHART_STYLE['colors']['forestry_transparent'],
                         hovertemplate="Year: %{x}<br>Surplus Balance: %{y:.2f} kt CO₂-e<extra></extra>"
                     ))
                     
@@ -743,7 +746,7 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                     fig.update_layout(
                         title=f"Stockpile Balance - {scenario}",
                         xaxis_title="Year",
-                        yaxis_title="Units (kt CO₂-e)",
+                        yaxis_title="NZUs (thousands) /Kt CO₂-e)",
                         yaxis=dict(
                             rangemode='tozero'
                         )
@@ -957,7 +960,7 @@ def supply_demand_balance_chart(model, scenario: Optional[str] = None, start_yea
     fig.update_layout(
         title=f"Supply-Demand Balance - {scenario}",
         xaxis_title="Year",
-        yaxis_title="Units (kt CO₂-e)",
+        yaxis_title="NZUs (thousands) /Kt CO₂-e)",
         yaxis=dict(
             rangemode='nonnegative',
             range=[0, None]  # Set minimum to 0, let max auto-scale
@@ -980,15 +983,34 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
     fig = go.Figure()
     
     try:
-        # Print available columns to debug
         if hasattr(model, 'auctions') and isinstance(model.auctions, pd.DataFrame):
-            print(f"\nAuctions columns: {model.auctions.columns.tolist()}")
+            # Debug info - uncomment if needed
+            # print(f"Auctions DataFrame columns: {model.auctions.columns}")
+            # if isinstance(model.auctions.columns, pd.MultiIndex):
+            #     scenarios = model.auctions.columns.get_level_values('scenario').unique()
+            #     print(f"Scenarios in auctions DataFrame: {scenarios}")
             
-            # Check column structure
-            column_tuples = [(scenario, 'base_supplied'), 
-                             (scenario, 'ccr1_supplied'), 
-                             (scenario, 'ccr2_supplied'), 
-                             (scenario, 'revenue')]
+            # Ensure the model.auctions has MultiIndex columns
+            if not isinstance(model.auctions.columns, pd.MultiIndex):
+                raise ValueError("Auctions DataFrame must have MultiIndex columns with (scenario, variable) levels")
+            
+            # Check that the requested scenario exists in the DataFrame
+            scenarios = model.auctions.columns.get_level_values('scenario').unique()
+            if scenario not in scenarios:
+                raise ValueError(f"Scenario '{scenario}' not found in auctions DataFrame. Available scenarios: {scenarios}")
+            
+            # Define the column tuples for this specific scenario
+            column_tuples = [
+                (scenario, 'base_supplied'),
+                (scenario, 'ccr1_supplied'),
+                (scenario, 'ccr2_supplied'),
+                (scenario, 'revenue')
+            ]
+            
+            # Check if all required columns exist
+            missing_columns = [col for col in column_tuples if col not in model.auctions.columns]
+            if missing_columns:
+                raise ValueError(f"Missing required columns in auctions DataFrame: {missing_columns}")
             
             # Extract data directly using column tuples
             base_supplied = model.auctions[column_tuples[0]]
@@ -1014,7 +1036,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
                 x=base_supplied.index,
                 y=base_supplied.values,
                 name="Base Auction Volume",
-                marker_color=DIVERGING_COLORS[1],
+                marker_color=NZUPY_CHART_STYLE["colors"]["auction_volume_dark"],
                 opacity=0.7,
                 hovertemplate="Year: %{x}<br>Base Volume: %{y:.2f} kt CO₂-e<extra></extra>"
             ))
@@ -1023,7 +1045,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
                 x=ccr1_supplied.index,
                 y=ccr1_supplied.values,
                 name="CCR1 Volume",
-                marker_color=DIVERGING_COLORS[2],
+                marker_color=NZUPY_CHART_STYLE["colors"]["auction_volume_medium"],
                 opacity=0.7,
                 hovertemplate="Year: %{x}<br>CCR1 Volume: %{y:.2f} kt CO₂-e<extra></extra>"
             ))
@@ -1032,7 +1054,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
                 x=ccr2_supplied.index,
                 y=ccr2_supplied.values,
                 name="CCR2 Volume",
-                marker_color=DIVERGING_COLORS[4],
+                marker_color=NZUPY_CHART_STYLE["colors"]["auction_volume_light"],
                 opacity=0.7,
                 hovertemplate="Year: %{x}<br>CCR2 Volume: %{y:.2f} kt CO₂-e<extra></extra>"
             ))
@@ -1052,7 +1074,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
             fig.update_layout(
                 title=f"Auction Volume and Revenue - {scenario}",
                 xaxis_title="Year",
-                yaxis_title="Auction Volume (kt CO₂-e)",
+                yaxis_title="Auction volume (000s) (kt CO₂-e)",
                 yaxis=dict(
                     rangemode='nonnegative',
                     range=[0, None]  # Set minimum to 0, let max auto-scale

@@ -120,7 +120,8 @@ The project is organised into the following directories:
   - **interface/** - Charting and user interface functionality
 - **data/** - Input data and model outputs
   - **inputs/** - Model input data
-  - **outputs/** - Model output data
+- **examples/** - Example notebooks demonstrating operation of model
+  - **outputs/** - Results data for example notebooks
 
 ## Model Components
 
@@ -153,24 +154,16 @@ central_prices = model.prices[('central', 'carbon_price')]
 emissions = model.demand.xs('emissions', level='variable', axis=1)
 ```
 
-## Configuration
-
-The model can be configured through various methods:
-
-- Loading data from CSV files
-- Setting parameters in code
-- Defining scenarios and their configurations
-
-See the example notebooks for detailed configuration examples.
-
 ## Forthcoming features
 
 A small selection of features from the Government's model have yet to be implemented and are planned for inclusion in the coming weeks/months:
 
-- Fuller documentation
 - Enable use of Manley equation afforestation response
 - Improved representation of historical years data in output results
 - Ability to run model with fxed (exogenous) NZU price paths
+- Documentation
+
+The model will also be updated following the release of the Climate Change Commission's forthcoming advice on 2026-2030 NZ ETS auction settings to incorporate their recommendations.
 
 ## Frequently asked questions
 
@@ -181,6 +174,10 @@ A small selection of features from the Government's model have yet to be impleme
 ***Can I use NZUpy for commercial purposes? Are there any fees for its use?***
 
 - NZUpy is licensed under a permissive MIT license, so is free to use and adapt, including for commercial purposes (refer LICENSE file for specifics).
+
+***What do you have planned for the repository? Will you update the repository following the Climate Commission's next report on NZ ETS auction settings for 2026-2030?***
+
+- Yes, I plan to release an updated version of the model following annoucement of the Commission's recommendations for auction settings to allow users to easily incorporate these options.
 
 ## Contributions & issues
 

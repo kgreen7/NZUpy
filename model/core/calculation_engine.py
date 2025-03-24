@@ -319,9 +319,9 @@ class CalculationEngine:
         Args:
             year: Year to calculate price for
         """
-        # Get control parameter for this year
-        control_value = self.model.price_control_parameter.get(year, self.model.config.price_control_default)
-        
+        # Get control value from parameter hierarchy
+        control_value = self._get_price_control_value(year)
+
         # Apply control parameter to price change
         if control_value >= 0:
             # Positive control: apply standard growth
@@ -331,7 +331,6 @@ class CalculationEngine:
             # Negative control: invert the change direction
             reduction_factor = 1 - (self.model.price_change_rate * abs(control_value))
             self.model.prices[year] = self.model.last_historical_price * reduction_factor
-
     def _calculate_subsequent_year_price(self, year: int):
         """
         Calculate price for years after the first projected year.
@@ -341,12 +340,8 @@ class CalculationEngine:
         """
         prev_year = year - 1
         
-        # For years beyond end_year, use default price control
-        if year > self.model.config.end_year:
-            control_value = self.model.config.price_control_default
-        else:
-            control_value = self.model.price_control_parameter.get(year, self.model.config.price_control_default)
-        
+        # Get control value from parameter hierarchy
+        control_value = self._get_price_control_value(year)
         # Apply control parameter to price change
         if control_value >= 0:
             # Positive control: apply standard growth
@@ -356,6 +351,37 @@ class CalculationEngine:
             # Negative control: invert the change direction
             reduction_factor = 1 - (self.model.price_change_rate * abs(control_value))
             self.model.prices[year] = self.model.prices[prev_year] * reduction_factor
+
+    def _get_price_control_value(self, year: int) -> float:
+        """
+        Get price control value following parameter loading priority.
+        
+        Args:
+            year: Year to get price control for
+            
+        Returns:
+            Price control value (1.0 is neutral)
+        """
+        # Try getting from direct parameter settings (highest priority)
+        if hasattr(self.model, 'price_control_parameter'):
+            control_value = self.model.price_control_parameter.get(year)
+            if control_value is not None:
+                return control_value
+        
+        # Try getting from currently active config (middle priority)
+        # This automatically uses the correct scenario's config based on how the runner works
+        if hasattr(self.model, 'data_handler') and hasattr(self.model.data_handler, 'historical_manager'):
+            # Getting the active price control config name for the current scenario
+            # This is already handled by the model runner when it sets up the scenario
+            active_config = self.model.active_price_control_config
+            if active_config:
+                control_value = self.model.data_handler.historical_manager.get_price_control(
+                    year, config=active_config)
+                if control_value is not None:
+                    return control_value
+        
+        # Default fallback (lowest priority)
+        return 1.0 # TODO: Figure out how to remove fallback here without breaking model
 
     def _apply_price_constraints(self, year: int, min_price: Optional[float], max_price: Optional[float]):
         """
@@ -561,30 +587,38 @@ class CalculationEngine:
                     growth_rates[year] = 0.0
         return growth_rates
     
-    def _calculate_base_supply(self):
-        """Calculate base supply components (excluding stockpile)."""
-        # Calculate auction supply
-        self.model.auction_results = self.model.auction.calculate(self.model.prices)
+    def _calculate_base_supply(self, scenario_name=None):
+        """
+        Calculate base supply components (excluding stockpile).
+        
+        Args:
+            scenario_name: Name of the scenario being calculated
+        """
+        # Calculate auction supply without scenario_name
+        self.model.auction_results = self.model.auction.calculate(
+            self.model.prices
+        )
         
         # Store the auction component itself for later access to input data
         self.model.auction_supply = self.model.auction
         
-        # Calculate industrial allocation
+        # Calculate industrial allocation without scenario_name
         self.model.industrial_results = self.model.industrial.calculate()
         
-        # Calculate forestry supply
-        self.model.forestry_results = self.model.forestry.calculate(self.model.prices)
+        # Calculate forestry supply without scenario_name
+        self.model.forestry_results = self.model.forestry.calculate(
+            self.model.prices
+        )
         
         # Calculate base supply (excluding stockpile)
         self.model.base_supply = {}
         for year in self.model.years:
             # For years before stockpile_usage_start_year, set base_supply equal to demand
-            # This ensures no artificial dip appears in the supply visualisation
             if hasattr(self.model.stockpile, 'stockpile_usage_start_year') and year < self.model.stockpile.stockpile_usage_start_year:
                 if year in self.model.demand.index:
                     self.model.base_supply[year] = self.model.demand[year]
                 else:
-                    # Fallback to the sum of components if demand is not available
+                    # Fallback to sum of components if demand not available
                     self.model.base_supply[year] = (
                         self.model.auction_results['total_auction'].get(year, 0) +
                         self.model.industrial_results['adjusted_allocation'].get(year, 0) +
@@ -596,10 +630,13 @@ class CalculationEngine:
                     self.model.industrial_results['adjusted_allocation'].get(year, 0) +
                     self.model.forestry_results['total_supply'].get(year, 0))
 
-    def _calculate_supply(self):
+    def _calculate_supply(self, scenario_name: Optional[str] = None):
         """
         Calculate all supply components (including stockpile) and total supply.
         
+        Args:
+            scenario_name: Name of the scenario being calculated
+            
         Note: This method should be used after base supply and stockpile
         have been calculated separately.
         """
@@ -618,9 +655,14 @@ class CalculationEngine:
             self.model.supply['stockpile']
         )
     
-    def _calculate_demand(self):
-        """Calculate demand based on emissions and price response."""
-        # Calculate price response
+    def _calculate_demand(self, scenario_name=None):
+        """
+        Calculate demand based on emissions and price response.
+        
+        Args:
+            scenario_name: Name of the scenario being calculated
+        """
+        # Calculate price response - no scenario_name
         price_response_results = self.model.price_response.calculate(
             self.model.prices, 
             self.model.emissions.emissions  # Use the emissions series directly
@@ -629,8 +671,10 @@ class CalculationEngine:
         # Get emissions reductions
         emissions_reduction = self.model.price_response.get_emissions_reduction()
         
-        # Calculate emissions with price response
-        emissions_results = self.model.emissions.calculate(emissions_reduction)
+        # Calculate emissions with price response - no scenario_name here either
+        emissions_results = self.model.emissions.calculate(
+            emissions_reduction
+        )
         
         # Total demand is the emissions after price response
         self.model.demand = emissions_results['total_demand']
@@ -687,7 +731,7 @@ class CalculationEngine:
         
         for year in yearly_gaps.index:
             if penalise_shortfalls and yearly_gaps[year] < 0:  # Supply shortfall with penalty
-                penalised_gaps[year] = abs(yearly_gaps[year]) * 1000000  # Apply severe penalty
+                penalised_gaps[year] = abs(yearly_gaps[year]) * 1000000  # Apply severe penalty matching Excel model approach
             else:  # Supply excess or no penalty requested
                 penalised_gaps[year] = abs(yearly_gaps[year])
                 
@@ -695,7 +739,7 @@ class CalculationEngine:
     
     def _filter_and_weight_gaps(self, penalised_gaps: pd.Series) -> pd.Series:
         """
-        Filter gaps to exclude years before stockpile_usage_start_year and apply weights.
+        Filter gaps to exclude years before stockpile_usage_start_year and apply weights. Currently not used, but set-up for future use.
         
         Args:
             penalised_gaps: Series of penalised gaps

@@ -288,16 +288,6 @@ class PriceResponse:
             )
         
         return self.results
-    
-    def update_price_response_data(self, new_data: pd.DataFrame) -> None:
-        """
-        Update price response data with new values (deprecated, kept for backward compatibility).
-        
-        Args:
-            new_data: DataFrame with updated price response data.
-        """
-        # This method is kept for backward compatibility but does nothing
-        pass
 
     def get_forward_price(self, year, prices):
         """

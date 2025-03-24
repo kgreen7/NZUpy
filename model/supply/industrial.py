@@ -59,26 +59,6 @@ class IndustrialAllocation:
         
         return self.results
     
-    def update_allocation_data(self, new_data: pd.DataFrame) -> None:
-        """
-        Update industrial allocation data with new values.
-        
-        Args:
-            new_data: DataFrame with updated allocation data.
-        """
-        # Update baseline allocation if provided
-        if 'baseline_allocation' in new_data.columns:
-            self.baseline_allocation.loc[new_data.index] = new_data['baseline_allocation']
-    
-    def get_total_allocation(self) -> pd.Series:
-        """
-        Get the total industrial allocation across all years.
-        
-        Returns:
-            Series of total industrial allocation indexed by year.
-        """
-        return self.results['adjusted_allocation']
-    
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert the industrial allocation component to a dictionary.

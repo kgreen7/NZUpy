@@ -1,10 +1,10 @@
-Variable,Config,Value,Description
+Variable,Config,Value,Metadata
 discount_rate,central,0.05,Discount rate used by emitters
 payback_years,central,25,Number of years until non-surplus units used are paid back
 start_year,central,2024,Start year for optimisation window
 end_year,central,2050,End year for optimisation window
 long_term_min,central,50,Long-term deminimus price (reflects long-run marginal cost for forestry)
 long_term_max,central,na,"Long-term max price (not set, but functionality allows for value to be set)"
-liquidity_factor,central,0.12,Proportion of non-surplus that can be traded in any given year
+liquidity_factor,central,0.15,Proportion of non-surplus that can be traded in any given year
 2019_NZD,central,1.187,Convert 2023 NZD to 2019NZD for demand response
 forward_years,central,10,Years ahead that gross emitters look for mitigation decisions
