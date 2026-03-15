@@ -171,6 +171,10 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# AI stuff:
+.claude/
+CLAUDE.local.md
+
 # PyPI configuration file
 .pypirc
 
@@ -187,6 +191,8 @@ codebase.md
 *.docx
 *.doc
 *.pptx
+*.txt
+*.nbconvert.ipynb
 
 # Custom folders
 examples/outputs/

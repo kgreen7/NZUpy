@@ -1080,8 +1080,7 @@ def auction_volume_revenue_chart(model, scenario=None, start_year=None, end_year
                     range=[0, None]  # Set minimum to 0, let max auto-scale
                 ),
                 yaxis2=dict(
-                    title="Auction Revenue ($)",
-                    titlefont=dict(color='#0d3941'),
+                    title=dict(text="Auction Revenue ($)", font=dict(color='#0d3941')),
                     tickfont=dict(color='#0d3941'),
                     overlaying="y",
                     side="right",

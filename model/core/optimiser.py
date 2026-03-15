@@ -1,5 +1,5 @@
 """
-Optimiser for NZ ETS Model
+Optimiser for NZUpy Model.
 
 This module implements the FastSolve optimisation algorithm from the original Excel model.
 It conducts a two-phase (coarse-fine) search to find the optimal price change rate

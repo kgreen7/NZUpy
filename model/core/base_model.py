@@ -1,17 +1,15 @@
 """
-Base model for NZ ETS Supply-Demand Model.
+NZUpy main model interface.
 
-This module provides the main model interface that coordinates components
-and provides the core functionality using a builder pattern for setup.
+Defines the NZUpy class, which coordinates all model components (supply, demand,
+stockpile, optimiser) and exposes the setup and run API.
 """
 
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional, Callable, Tuple, Union
-from dataclasses import dataclass, field
 from pathlib import Path
 
-# Import from other modules after refactoring
 from model.supply.auction import AuctionSupply
 from model.supply.industrial import IndustrialAllocation
 from model.supply.stockpile import StockpileSupply
@@ -22,8 +20,6 @@ from model.utils.data_handler import DataHandler
 from model.config import ModelConfig, ComponentConfig
 from model.utils.output_format import OutputFormat
 from model.core.optimiser import FastSolveOptimiser
-
-# Import refactored components
 from model.core.calculation_engine import CalculationEngine
 from model.core.scenario_manager import ScenarioManager
 from model.core.runner import ModelRunner
@@ -31,62 +27,36 @@ from model.core.runner import ModelRunner
 class NZUpy:
     """
     Main model class for the NZ ETS Supply-Demand Model.
-    
-    This class coordinates all model components and provides the interface
-    for the optimisation process. It follows a builder pattern for setup:
-    
+
+    Coordinates all model components and provides the interface for the
+    optimisation process. Set up the model in sequence before calling run():
+
     Example usage:
-        nze = NZUpy()
-        nze.define_time(2023, 2050)
-        nze.define_scenarios(['Low Auction', 'central', 'High Auction'])
-        nze.prime()
-        
-        # Configure scenarios
-        nze.use_central_configs(1)  # Set everything to central for scenario 1
-        nze.set_parameter("initial_stockpile", 159902, 'stockpile', 1)  # Set stockpile parameter
-        nze.use_config(0, 'emissions', 'CCC_CPR')
-        
-        # Run the model
-        results = nze.run()
+        nzu = NZUpy()
+        nzu.define_time(2024, 2050)
+        nzu.define_scenarios(['Baseline', 'High Price'])
+        nzu.allocate()
+        nzu.fill_defaults()                                   # seed all components with central config
+        nzu.fill_component('emissions', config='CCC_CPR', scenario='High Price')
+        nzu.run()
+        nzu.prices                                            # DataFrame of carbon prices
     """
     
     def __init__(
         self,
         data_dir: Optional[str] = None,
         data_handler: Optional[DataHandler] = None,
-        config_overrides: Optional[Dict[str, Any]] = None
     ):
         """
         Initialise the ETS model.
-        
+
         Args:
             data_dir: Path to data directory
             data_handler: Optional pre-configured data handler
-            config_overrides: Optional dictionary of config values to override defaults
         """
         # Set up data handler
         self.data_handler = data_handler or DataHandler(data_dir or "data")
-        
-        try:
-            # Get required parameters from data handler
-            stockpile_params = self.data_handler.get_stockpile_parameters()
-            
-            # Create base config with required parameters
-            config_dict = {
-                "initial_stockpile": stockpile_params['initial_stockpile'],
-                "initial_surplus": stockpile_params['initial_surplus'],
-                "liquidity_factor": stockpile_params['liquidity_factor']
-            }
-            
-            # Apply any overrides
-            if config_overrides:
-                config_dict.update(config_overrides)
-            
-            # Create config
-            self.config = ModelConfig(**config_dict)
-            
-        except Exception as e:
-            raise ValueError(f"Failed to initialise model - could not load required parameters from data: {e}")
+        self.config = ModelConfig()
         
         # Create empty configuration objects - will be populated later
         self.scenarios = []  # Will hold scenario names
@@ -245,173 +215,536 @@ class NZUpy:
         
         return self
     
-    def list_available_configs(self, component_type: str) -> List[str]:
+    def allocate(self) -> 'NZUpy':
         """
-        List available predefined configurations for a component type.
-        
-        Args:
-            component_type: Type of configs to list ('emissions', 'auction', 'industrial', 
-                        'forestry', 'demand_model')
-        
-        Returns:
-            List of available configuration names
-        """
-        return self.scenario_manager.list_available_configs(component_type)
-    
-    def prime(self) -> 'NZUpy':
-        """
-        Prime the model by initializing core data structures and configurations.
-        
+        Allocate the model by initializing core data structures and scenario slots.
+
+        Call this after define_time() and define_scenarios(), before any fill_*() calls.
+
         Returns:
             Self for method chaining
         """
-        # Check if model has already been primed
+        # Check if model has already been allocated
         if self._primed:
-            print("Model already primed. Skipping.")
+            print("Model already allocated. Skipping.")
             return self
-        
+
         # Validate that time and scenarios have been defined
         if not self._time_defined:
-            raise ValueError("Time must be defined before priming. Call define_time() first.")
-        
+            raise ValueError("Time must be defined before allocating. Call define_time() first.")
+
         if not self._scenarios_defined:
-            raise ValueError("Scenarios must be defined before priming. Call define_scenarios() first.")
-        
+            raise ValueError("Scenarios must be defined before allocating. Call define_scenarios() first.")
+
         # Initialise internal data structures for calculations
         self.prices = pd.Series(index=self.calculation_years, dtype=float)
-        self.supply = pd.DataFrame(index=self.years)  # Supply for model years only
-        self.demand = pd.Series(index=self.years, dtype=float)  # Demand for model years only
-        
+        self.supply = pd.DataFrame(index=self.years)
+        self.demand = pd.Series(index=self.years, dtype=float)
+
         # Price change rate (the optimisation variable)
         self.price_change_rate = 0.0
-        
+
         # Initialise scenario configurations
         self.scenario_manager._initialise_scenarios()
-        
-        # Mark as primed
+
+        # Mark as allocated/primed
         self._primed = True
-        
+
         # Print informative message
-        print(f"Model primed with {len(self.scenarios)} scenarios:")
+        print(f"Model allocated with {len(self.scenarios)} scenarios:")
         for i, name in enumerate(self.scenarios):
             print(f"  [{i}] {name}")
-        
+
         # Initialise dictionaries for storing results
         self.results = {}
-        
+
         return self
-    
-    def set_parameter(self, parameter_name: str, value: Any, component: str, 
-                    scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
+
+    # -------------------------------------------------------------------------
+    # fill() family
+    # -------------------------------------------------------------------------
+
+    # Variable → component routing table (from 02_INPUT_TAXONOMY.md)
+    _VARIABLE_COMPONENT_MAP = {
+        # Auction (column names as they appear in auction.csv)
+        'base_volume': 'auction',
+        'auction_reserve_price': 'auction',
+        'ccr_trigger_price_1': 'auction',
+        'ccr_volume_1': 'auction',
+        'ccr_trigger_price_2': 'auction',
+        'ccr_volume_2': 'auction',
+        # Forestry (exogenous time-series)
+        'forestry_tradeable': 'forestry',
+        'forestry_held': 'forestry',
+        'forestry_surrender': 'forestry',
+        # Forestry mode / Manley scalars
+        'forestry_mode': 'forestry',
+        'manley_sensitivity': 'forestry',
+        'forestry_price_assumption': 'forestry',
+        'manley_f': 'forestry',
+        'manley_LMV': 'forestry',
+        'manley_LUC_limit': 'forestry',
+        'forestry_discount_rate': 'forestry',
+        'forestry_forward_years': 'forestry',
+        # Industrial
+        'baseline_allocation': 'industrial',
+        # Emissions
+        'emissions_baseline': 'emissions',
+        # Demand model
+        'demand_model_number': 'demand_model',
+        'constant': 'demand_model',
+        'reduction_to_t1': 'demand_model',
+        # Stockpile scalars
+        'initial_stockpile': 'stockpile',
+        'initial_surplus': 'stockpile',
+        'liquidity_factor': 'stockpile',
+        'payback_period': 'stockpile',
+        'stockpile_usage_start_year': 'stockpile',
+        'stockpile_reference_year': 'stockpile',
+        # Price
+        'start_price': 'price',
+        'price_control': 'price',
+    }
+
+    def fill_defaults(self, config: str = 'central') -> 'NZUpy':
         """
-        Set a parameter value for a specific component and scenario.
-        
+        Load the specified config for ALL components across ALL scenarios.
+
+        Call this once after allocate() to seed every scenario with a baseline
+        configuration, then use fill_component() / fill() to override specific
+        components or values.
+
         Args:
-            parameter_name: Name of the parameter to set
-            value: New value for the parameter
-            component: Component the parameter belongs to ('stockpile', 'auction', etc.)
-            scenario_index: Index of the scenario to modify (default: 0)
-            scenario_name: Name of the scenario to modify (overrides scenario_index if provided)
-            
+            config: Config name to use for all components (default: 'central').
+
         Returns:
-            Self for method chaining
+            Self for method chaining.
+
+        Example:
+            nzu.allocate()
+            nzu.fill_defaults()                        # all scenarios → central
+            nzu.fill_component('forestry', config='low', scenario='Low Forestry')
         """
         if not self._primed:
-            raise ValueError("Model must be primed before setting parameters. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
-        # Validate scenario_index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario config
-        component_config = self.component_configs[scenario_index]
-        
-        # Get scenario name for display
-        scenario_name = self.scenarios[scenario_index]
-        
-        # Handle different components
-        if component == 'stockpile':
-            
-            # Validate parameter name
-            valid_params = ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
-                            'discount_rate', 'payback_period', 'stockpile_usage_start_year', 
-                            'stockpile_reference_year']
-            
-            if parameter_name not in valid_params:
-                raise ValueError(f"Invalid stockpile parameter: '{parameter_name}'. Valid options: {', '.join(valid_params)}")
-            
-            # Validate parameter value based on type
-            if parameter_name in ['initial_stockpile', 'initial_surplus']:
-                if not isinstance(value, (int, float)) or value < 0:
-                    raise ValueError(f"{parameter_name} must be a non-negative number")
-            elif parameter_name in ['liquidity_factor', 'discount_rate']:
-                if not isinstance(value, (int, float)) or value < 0 or value > 1:
-                    raise ValueError(f"{parameter_name} must be a number between 0 and 1")
-            elif parameter_name == 'payback_period':
-                if not isinstance(value, int) or value <= 0:
-                    raise ValueError("payback_period must be a positive integer")
-            elif parameter_name == 'stockpile_usage_start_year':
-                if not isinstance(value, int) or value < self.config.start_year:
-                    raise ValueError(f"stockpile_usage_start_year must be at least {self.config.start_year}")
-            
-            # Set the parameter
-            setattr(component_config, parameter_name, value)
+            raise ValueError(
+                "Model must be allocated before filling. Call allocate() first."
+            )
+        for i in range(len(self.scenarios)):
+            cfg = self.component_configs[i]
+            cfg.emissions = config
+            cfg.auction = config
+            cfg.industrial = config
+            cfg.forestry = config
+            cfg.demand_sensitivity = config
+            cfg.demand_model_number = 2
+            cfg.stockpile = config
+            cfg.model_params = config
 
-            # Print confirmation
-            print(f"Set {component}.{parameter_name} = {value} for scenario '{scenario_name}'")
-            
-        elif component == 'demand_model':
-            # Special case for demand model number
-            if parameter_name == 'model_number':
-                if not isinstance(value, int) or value not in [1, 2]:
-                    raise ValueError("demand_model number must be 1 or 2")
-                component_config.demand_model_number = value
-                print(f"Set demand_model.model_number = {value} for scenario '{scenario_name}'")
-            else:
-                print(f"Cannot set parameter '{parameter_name}' directly for component 'demand_model'")
-        
-        else:
-            # For other components, explain that they need to use a different approach
-            print(f"Cannot directly set parameter '{parameter_name}' for component '{component}'.")
-            print(f"To modify {component} configuration, use:")
-            print(f"  - use_config() to select a different predefined configuration")
-            print(f"  - create custom datasets and load them with the data handler")
-        
+        print(f"Defaults filled: all components set to '{config}' for all scenarios.")
         return self
-    
-    def use_config(self, scenario_index: int, component_type: str, config_name: str, model_number: Optional[int] = None) -> 'NZUpy':
+
+    def fill_component(
+        self,
+        component: str,
+        config: str,
+        scenario: Optional[Union[str, int]] = None,
+    ) -> 'NZUpy':
         """
-        Use a specific configuration for a component in a scenario.
-        
+        Load a specific config for one component, optionally scoped to one scenario.
+
         Args:
-            scenario_index: Index of the scenario to modify
-            component_type: Type of component to configure ('emissions', 'auction', etc.)
-            config_name: Name of the configuration to use
-            model_number: Optional model number for demand models
-            
+            component: Component name — one of 'auction', 'forestry', 'industrial',
+                       'emissions', 'demand_model', 'stockpile'.
+            config: Config name (e.g., 'central', 'low', 'CCC_2024').
+            scenario: Scenario name (str) or index (int). If None, applies to ALL
+                      scenarios.
+
         Returns:
-            Self for method chaining
+            Self for method chaining.
+
+        Example:
+            nzu.fill_component('forestry', config='low', scenario='Alt')
+            nzu.fill_component('emissions', config='CCC_CPR')   # all scenarios
         """
-        return self.scenario_manager.use_config(scenario_index, component_type, config_name, model_number)
-    
-    def use_central_configs(self, scenario_index: int) -> 'NZUpy':
+        if not self._primed:
+            raise ValueError(
+                "Model must be allocated before filling. Call allocate() first."
+            )
+
+        valid_components = ['auction', 'forestry', 'industrial', 'emissions',
+                            'demand_model', 'stockpile']
+        if component not in valid_components:
+            raise ValueError(
+                f"Unknown component: '{component}'. "
+                f"Valid options: {', '.join(valid_components)}"
+            )
+
+        # Resolve scenario(s)
+        if scenario is None:
+            indices = list(range(len(self.scenarios)))
+        elif isinstance(scenario, int):
+            if scenario < 0 or scenario >= len(self.scenarios):
+                raise ValueError(
+                    f"Scenario index {scenario} out of range "
+                    f"(0–{len(self.scenarios) - 1})."
+                )
+            indices = [scenario]
+        else:
+            if scenario not in self.scenarios:
+                raise ValueError(
+                    f"Unknown scenario: '{scenario}'. "
+                    f"Available: {', '.join(self.scenarios)}"
+                )
+            indices = [self.scenarios.index(scenario)]
+
+        for i in indices:
+            cfg = self.component_configs[i]
+            if component == 'demand_model':
+                cfg.demand_sensitivity = config
+            else:
+                setattr(cfg, component, config)
+
+        scope = f"scenario '{self.scenarios[indices[0]]}'" if len(indices) == 1 else "all scenarios"
+        print(f"Filled {component} with config '{config}' for {scope}.")
+        return self
+
+    def fill(
+        self,
+        variable_name: str,
+        value: Any,
+        scenario: Optional[Union[str, int]] = None,
+        component: Optional[str] = None,
+    ) -> 'NZUpy':
         """
-        Use central configurations for all components in a specific model scenario.
-        
+        Set an individual variable value for one or all scenarios.
+
+        The component is inferred automatically from the variable name.
+        For ambiguous variables (e.g., 'discount_rate', 'forward_years') the
+        component kwarg is required.
+
         Args:
-            scenario_index: Index of the model scenario to modify
-            
+            variable_name: Variable to set (must be in the taxonomy routing table,
+                           or pass component= for ambiguous variables).
+            value: New value. Scalar for parameters; pd.Series for time series.
+            scenario: Scenario name or index. If None, applies to ALL scenarios.
+            component: Required for ambiguous variables ('discount_rate',
+                       'forward_years'). Also accepted for any variable to be
+                       explicit.
+
         Returns:
-            Self for method chaining
+            Self for method chaining.
+
+        Example:
+            nzu.fill('liquidity_factor', 0.15, scenario='Alt')
+            nzu.fill('discount_rate', 0.07, scenario='Alt', component='stockpile')
+            nzu.fill('forestry_tradeable', my_series, scenario='Alt')
         """
-        return self.scenario_manager.use_central_configs(scenario_index)
-    
+        if not self._primed:
+            raise ValueError(
+                "Model must be allocated before filling. Call allocate() first."
+            )
+
+        # Resolve component
+        if component is None:
+            if variable_name not in self._VARIABLE_COMPONENT_MAP:
+                raise ValueError(
+                    f"Unknown variable '{variable_name}'. "
+                    f"If this is an ambiguous variable (e.g., 'discount_rate'), "
+                    f"pass component= to disambiguate."
+                )
+            component = self._VARIABLE_COMPONENT_MAP[variable_name]
+
+        # Resolve scenario index(es)
+        if scenario is None:
+            indices = list(range(len(self.scenarios)))
+        elif isinstance(scenario, int):
+            if scenario < 0 or scenario >= len(self.scenarios):
+                raise ValueError(
+                    f"Scenario index {scenario} out of range "
+                    f"(0–{len(self.scenarios) - 1})."
+                )
+            indices = [scenario]
+        else:
+            if scenario not in self.scenarios:
+                raise ValueError(
+                    f"Unknown scenario: '{scenario}'. "
+                    f"Available: {', '.join(self.scenarios)}"
+                )
+            indices = [self.scenarios.index(scenario)]
+
+        _valid_stockpile_params = [
+            "initial_stockpile", "initial_surplus", "liquidity_factor",
+            "discount_rate", "stockpile_usage_start_year", "payback_period",
+            "stockpile_reference_year",
+        ]
+
+        _valid_forestry_scalars = [
+            'forestry_mode', 'manley_sensitivity', 'forestry_price_assumption',
+            'manley_f', 'manley_LMV', 'manley_LUC_limit',
+            'forestry_discount_rate', 'forestry_forward_years',
+        ]
+
+        for i in indices:
+            if component == 'forestry' and variable_name in _valid_forestry_scalars:
+                # Validate forestry_mode and forestry_price_assumption values
+                if variable_name == 'forestry_mode' and value not in ('exogenous', 'endogenous'):
+                    raise ValueError(
+                        f"forestry_mode must be 'exogenous' or 'endogenous', got '{value}'"
+                    )
+                if variable_name == 'forestry_price_assumption' and value not in ('future', 'current'):
+                    raise ValueError(
+                        f"forestry_price_assumption must be 'future' or 'current', got '{value}'"
+                    )
+                if variable_name == 'manley_sensitivity' and value not in ('low', 'central', 'high'):
+                    raise ValueError(
+                        f"manley_sensitivity must be 'low', 'central', or 'high', got '{value}'"
+                    )
+                setattr(self.component_configs[i], variable_name, value)
+            elif component == 'stockpile':
+                if variable_name not in _valid_stockpile_params:
+                    raise ValueError(
+                        f"Unknown stockpile parameter: '{variable_name}'. "
+                        f"Valid options: {', '.join(_valid_stockpile_params)}"
+                    )
+                if variable_name == 'liquidity_factor' and not 0 <= value <= 1:
+                    raise ValueError(f"liquidity_factor must be between 0 and 1, got {value}")
+                if variable_name == 'discount_rate' and not 0 <= value <= 1:
+                    raise ValueError(f"discount_rate must be between 0 and 1, got {value}")
+                setattr(self.component_configs[i], variable_name, value)
+                print(f"Set {variable_name}={value} for scenario '{self.scenarios[i]}'")
+            elif component == 'demand_model' and variable_name == 'demand_model_number':
+                if not isinstance(value, int) or value not in [1, 2]:
+                    raise ValueError("demand_model_number must be 1 or 2")
+                self.component_configs[i].demand_model_number = value
+            elif isinstance(value, pd.Series):
+                self._store_series(variable_name, value, component=component, scenario_index=i)
+            else:
+                raise ValueError(
+                    f"Cannot set scalar '{variable_name}' for component "
+                    f"'{component}' via fill(). "
+                    f"For time-series components use a pd.Series value, "
+                    f"or use fill_component() to select a named config."
+                )
+
+        scope = (f"scenario '{self.scenarios[indices[0]]}'"
+                 if len(indices) == 1 else "all scenarios")
+        print(f"Filled {component}.{variable_name} for {scope}.")
+        return self
+
+    def fill_range_configs(self) -> 'NZUpy':
+        """
+        Configure demand sensitivity configs to match scenario names for range runs.
+
+        Must be called after define_scenario_type('Range') and allocate().
+
+        Returns:
+            Self for method chaining.
+
+        Example:
+            nzu.define_scenario_type('Range')
+            nzu.allocate()
+            nzu.fill_defaults()
+            nzu.fill_range_configs()   # maps each scenario → its demand config
+            nzu.run()
+        """
+        return self.scenario_manager.configure_range_scenarios()
+
+    # -------------------------------------------------------------------------
+    # Discoverability methods
+    # -------------------------------------------------------------------------
+
+    # Variables belonging to each component (from 02_INPUT_TAXONOMY.md)
+    _COMPONENT_VARIABLES = {
+        'auction': ['auction_volume', 'auction_reserve_price', 'CCR_price_1',
+                    'CCR_volume_1', 'CCR_price_2', 'CCR_volume_2'],
+        'forestry': ['forestry_tradeable', 'forestry_held', 'forestry_surrender'],
+        'industrial': ['baseline_allocation'],
+        'emissions': ['emissions_baseline'],
+        'demand_model': ['demand_model_number', 'constant', 'reduction_to_t1',
+                         'discount_rate', 'forward_years', 'price_conversion_factor'],
+        'stockpile': ['initial_stockpile', 'initial_surplus', 'liquidity_factor',
+                      'discount_rate', 'payback_period', 'stockpile_usage_start_year'],
+        'price': ['start_price', 'price_control'],
+    }
+
+    def list_configs(self, component: str) -> dict:
+        """
+        List available configs for a component by reading the source CSV.
+
+        Args:
+            component: Component name ('auction', 'forestry', 'industrial',
+                       'emissions', 'demand_model', 'stockpile').
+
+        Returns:
+            Dict mapping variable names to lists of available config names.
+            Also prints a summary to stdout.
+
+        Example:
+            nzu.list_configs('forestry')
+            # {'forestry_tradeable': ['central'], ...}
+        """
+        available = self.data_handler.list_available_configs(component)
+        variables = self._COMPONENT_VARIABLES.get(component, [])
+
+        print(f"\nAvailable configs for '{component}':")
+        print(f"  Configs  : {available}")
+        print(f"  Variables: {variables}")
+
+        return {var: available for var in variables}
+
+    def show_config(self, component: str, config_name: str) -> None:
+        """
+        Display the values for a specific component config.
+
+        Args:
+            component: Component name ('auction', 'forestry', 'industrial',
+                       'emissions', 'demand_model', 'stockpile').
+            config_name: Config name to display (e.g., 'central', 'low').
+
+        Example:
+            nzu.show_config('forestry', 'central')
+        """
+        print(f"\n=== {component.upper()} — config: '{config_name}' ===")
+        try:
+            if component == 'auction':
+                data = self.data_handler.get_auction_data(config=config_name)
+                print(data.to_string())
+            elif component == 'forestry':
+                data = self.data_handler.get_forestry_data(config=config_name)
+                print(data.to_string())
+            elif component == 'industrial':
+                data = self.data_handler.get_industrial_allocation_data(config=config_name)
+                print(data.to_string())
+            elif component == 'emissions':
+                data = self.data_handler.get_emissions_data(config=config_name)
+                print(data.to_string())
+            elif component == 'demand_model':
+                data = self.data_handler.get_demand_model(config=config_name, model_number=2)
+                for k, v in data.items():
+                    print(f"  {k}: {v}")
+            elif component == 'stockpile':
+                data = self.data_handler.get_stockpile_parameters(config=config_name)
+                for k, v in data.items():
+                    print(f"  {k}: {v}")
+            else:
+                print(f"show_config() not supported for component '{component}'.")
+        except Exception as e:
+            print(f"Could not load config '{config_name}' for '{component}': {e}")
+
+    def compare_configs(self, component: str, config_a: str, config_b: str) -> None:
+        """
+        Display a side-by-side comparison of two configs for a component.
+
+        Args:
+            component: Component name.
+            config_a: First config name.
+            config_b: Second config name.
+
+        Example:
+            nzu.compare_configs('emissions', 'central', 'CCC_CPR')
+        """
+        print(f"\n=== {component.upper()} — '{config_a}' vs '{config_b}' ===")
+        try:
+            if component in ('auction', 'forestry', 'industrial', 'emissions'):
+                getter_map = {
+                    'auction': self.data_handler.get_auction_data,
+                    'forestry': self.data_handler.get_forestry_data,
+                    'industrial': self.data_handler.get_industrial_allocation_data,
+                    'emissions': self.data_handler.get_emissions_data,
+                }
+                getter = getter_map[component]
+                df_a = getter(config=config_a)
+                df_b = getter(config=config_b)
+                # Build comparison DataFrame using first numeric column of each
+                comparison = pd.DataFrame({
+                    config_a: df_a.select_dtypes('number').iloc[:, 0],
+                    config_b: df_b.select_dtypes('number').iloc[:, 0],
+                })
+                comparison['diff'] = comparison[config_b] - comparison[config_a]
+                print(comparison.to_string())
+            elif component in ('demand_model', 'stockpile'):
+                kwargs = {'model_number': 2} if component == 'demand_model' else {}
+                getter = (self.data_handler.get_demand_model
+                          if component == 'demand_model'
+                          else self.data_handler.get_stockpile_parameters)
+                data_a = getter(config=config_a, **kwargs)
+                data_b = getter(config=config_b, **kwargs)
+                col_w = max(len(config_a), len(config_b), 12)
+                print(f"  {'Variable':<30} {config_a:<{col_w}} {config_b:<{col_w}}")
+                print(f"  {'-'*30} {'-'*col_w} {'-'*col_w}")
+                for k in sorted(set(list(data_a.keys()) + list(data_b.keys()))):
+                    va = data_a.get(k, 'N/A')
+                    vb = data_b.get(k, 'N/A')
+                    marker = ' *' if va != vb else ''
+                    print(f"  {k:<30} {str(va):<{col_w}} {str(vb):<{col_w}}{marker}")
+            else:
+                print(f"compare_configs() not supported for component '{component}'.")
+        except Exception as e:
+            print(f"Could not compare configs for '{component}': {e}")
+
+    def show_current(self, scenario: Optional[Union[str, int]] = None) -> dict:
+        """
+        Display which config is currently loaded for each component.
+
+        Args:
+            scenario: Scenario name or index. If None, shows all scenarios.
+
+        Returns:
+            Dict of {scenario_name: {component: config_name}}.
+            Also prints a formatted table to stdout.
+
+        Example:
+            nzu.show_current()
+            nzu.show_current(scenario='Alt')
+        """
+        if not self._primed:
+            raise ValueError("Model must be allocated before calling show_current().")
+
+        if scenario is None:
+            indices = list(range(len(self.scenarios)))
+        elif isinstance(scenario, int):
+            if scenario < 0 or scenario >= len(self.scenarios):
+                raise ValueError(f"Scenario index {scenario} out of range.")
+            indices = [scenario]
+        else:
+            if scenario not in self.scenarios:
+                raise ValueError(
+                    f"Unknown scenario: '{scenario}'. "
+                    f"Available: {', '.join(self.scenarios)}"
+                )
+            indices = [self.scenarios.index(scenario)]
+
+        result = {}
+        for i in indices:
+            name = self.scenarios[i]
+            cfg = self.component_configs[i]
+            result[name] = {
+                'auction':      cfg.auction,
+                'industrial':   cfg.industrial,
+                'forestry':     cfg.forestry,
+                'emissions':    cfg.emissions,
+                'demand_model': cfg.demand_sensitivity,
+                'stockpile':    cfg.stockpile,
+                'model_params': cfg.model_params,
+            }
+
+        # Pretty-print table
+        scenario_names = [self.scenarios[i] for i in indices]
+        col_w = max((len(s) for s in scenario_names), default=12) + 2
+        print(f"\nCurrent configuration:")
+        header = f"  {'Component':<18}" + "".join(f"  {s:<{col_w}}" for s in scenario_names)
+        print(header)
+        print("  " + "-" * (18 + (col_w + 2) * len(indices)))
+        for comp in ['auction', 'industrial', 'forestry', 'emissions',
+                     'demand_model', 'stockpile', 'model_params']:
+            row = f"  {comp:<18}"
+            for name in scenario_names:
+                val = result[name].get(comp, '—')
+                row += f"  {str(val):<{col_w}}"
+            print(row)
+
+        return result
+
     def calculate_gap(self, price_change_rate: float) -> float:
         """Calculate the gap between supply and demand."""
         return self.calculation_engine.calculate_gap(price_change_rate)
@@ -425,15 +758,15 @@ class NZUpy:
         """
         # Check that the model has been primed
         if not self._primed:
-            raise ValueError("Model must be primed before validation. Call prime() first.")
-        
+            raise ValueError("Model must be allocated before validation. Call allocate() first.")
+
         # Check that we have at least one scenario
         if not self.scenarios:
             raise ValueError("No scenarios defined. Call define_scenarios() first.")
-        
+
         # Check that we have scenario configurations
         if not hasattr(self, 'component_configs') or not self.component_configs:
-            raise ValueError("Scenario configurations not initialised. Call prime() first.")
+            raise ValueError("Scenario configurations not initialised. Call allocate() first.")
         
         # Check scenario configurations
         for i, scenario_config in enumerate(self.component_configs):
@@ -441,16 +774,16 @@ class NZUpy:
             
             # Check if required scenario types are set
             if not scenario_config.emissions:
-                raise ValueError(f"Emissions scenario not set for '{scenario_name}'. Call use_config() first.")
+                raise ValueError(f"Emissions scenario not set for '{scenario_name}'. Call fill_defaults() or fill_component() first.")
             
-            if not scenario_config.auctions:
-                raise ValueError(f"Auction scenario not set for '{scenario_name}'. Call use_config() first.")
-            
-            if not scenario_config.industrial_allocation:
-                raise ValueError(f"Industrial allocation scenario not set for '{scenario_name}'. Call use_config() first.")
+            if not scenario_config.auction:
+                raise ValueError(f"Auction scenario not set for '{scenario_name}'. Call fill_defaults() or fill_component() first.")
+
+            if not scenario_config.industrial:
+                raise ValueError(f"Industrial allocation scenario not set for '{scenario_name}'. Call fill_defaults() or fill_component() first.")
             
             if not scenario_config.forestry:
-                raise ValueError(f"Forestry scenario not set for '{scenario_name}'. Call use_config() first.")
+                raise ValueError(f"Forestry scenario not set for '{scenario_name}'. Call fill_defaults() or fill_component() first.")
             
             # Validate stockpile parameters if set
             stockpile_params = {}
@@ -527,15 +860,6 @@ class NZUpy:
             Self for method chaining
         """
         return self.scenario_manager.set_demand_model(model_number)
-
-    def configure_range_scenarios(self) -> 'NZUpy':
-        """
-        Configure all scenarios for a 'Range' scenario type run.
-        
-        Returns:
-            Self for method chaining
-        """
-        return self.scenario_manager.configure_range_scenarios()
 
     def run(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -633,780 +957,83 @@ class NZUpy:
             return getattr(component_config, 'price_control_config', 'central')
         return 'central'  # Default if not running a specific scenario
     
-    def run_scenarios(self, scenarios: List[str]) -> Dict[str, Dict[str, Any]]:
-        """
-        Run the model for multiple scenarios.
-        
-        Args:
-            scenarios: List of scenarios to run.
-                Options: "central", "1 s.e lower", "1 s.e upper", "95% Lower", "95% Upper"
-        
-        Returns:
-            Dict mapping scenarios to their results.
-        """
-        return self.model_runner.run_scenarios(scenarios)
-    
-    def get_results(self) -> Dict[str, Any]:
-        """
-        Get the model results.
-        
-        Returns:
-            Dict containing model results.
-        """
-        return {
-            'price_change_rate': self.price_change_rate,
-            'prices': self.prices.to_dict() if hasattr(self, 'prices') else {},
-            'supply': self.supply.to_dict() if hasattr(self, 'supply') else {},
-            'demand': self.demand.to_dict() if hasattr(self, 'demand') else {},
-        }
-    
-    def update_scenario_config(self, scenario_name: str, **kwargs) -> 'NZUpy':
-        """
-        Update scenario configuration parameters.
-        
-        Args:
-            scenario_name: Name of the scenario to update
-            **kwargs: Key-value pairs of configuration parameters to update
-            
-        Returns:
-            Self for method chaining
-        """
-        # Check if scenario exists
-        if scenario_name not in self.scenarios:
-            raise ValueError(f"Scenario '{scenario_name}' not found. Available scenarios: {', '.join(self.scenarios)}")
-        
-        # Get the scenario configuration using index
-        scenario_index = self.scenarios.index(scenario_name)
-        scenario_config = self.component_configs[scenario_index]
-        
-        # Update the configuration
-        for key, value in kwargs.items():
-            if hasattr(scenario_config, key):
-                setattr(scenario_config, key, value)
-            else:
-                raise ValueError(f"Unknown configuration parameter: {key}")
-        
-        return self
-
-    def set_stockpile_values(self, scenario_index: int, stockpile: float, surplus: float) -> 'NZUpy':
-        """
-        Set custom stockpile and surplus values for a scenario.
-        
-        Args:
-            scenario_index: Index of the scenario to modify
-            stockpile: Total stockpile volume
-            surplus: Surplus component volume (must be <= stockpile)
-            
-        Returns:
-            Self for method chaining
-            
-        Raises:
-            ValueError: If scenario_index is invalid or values are invalid
-        """
-        # Validate scenario index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Validate values
-        if surplus > stockpile:
-            raise ValueError(f"Surplus ({surplus}) cannot exceed total stockpile ({stockpile})")
-        
-        if stockpile < 0 or surplus < 0:
-            raise ValueError(f"Stockpile and surplus values must be non-negative")
-        
-        # Set values in the component config
-        self.component_configs[scenario_index].initial_stockpile = stockpile
-        self.component_configs[scenario_index].initial_surplus = surplus
-        
-        print(f"Set custom stockpile values for scenario {scenario_index}: stockpile={stockpile}, surplus={surplus}")
-        return self
-    
-    def show_inputs(self, component: str, scenario_index: int = 0, scenario_name: str = None):
-        """
-        Display all inputs for a specific component and scenario.
-        
-        Args:
-            component: Component to inspect ('stockpile', 'auction', 'industrial', 
-                    'forestry', 'emissions', 'demand_model')
-            scenario_index: Index of the scenario to inspect (default: 0)
-            scenario_name: Name of the scenario to inspect (overrides scenario_index if provided)
-            
-        Returns:
-            DataFrame containing all inputs for the component and scenario
-        """
+    def _store_series(
+        self,
+        series_name: str,
+        data: pd.Series,
+        component: str,
+        scenario_index: int,
+    ) -> 'NZUpy':
+        """Store a time series override for a specific component and scenario."""
         if not self._primed:
-            raise ValueError("Model must be primed before showing inputs. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
+            raise ValueError("Model must be allocated before setting series data. Call allocate() first.")
+
         # Validate scenario_index
         if scenario_index < 0 or scenario_index >= len(self.scenarios):
             raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario name for display
+
         scenario_name = self.scenarios[scenario_index]
-        
-        # Validate component
-        valid_components = ['stockpile', 'auction', 'industrial', 'forestry', 'emissions', 'demand_model']
-        if component not in valid_components:
-            raise ValueError(f"Invalid component: '{component}'. Valid options: {', '.join(valid_components)}")
-        
-        # Get component configuration
         component_config = self.component_configs[scenario_index]
-        
-        # Get config name based on component type
-        config_name = None
-        if component == 'stockpile':
-            config_name = component_config.stockpile
-        elif component == 'auction':
-            config_name = component_config.auctions
-        elif component == 'industrial':
-            config_name = component_config.industrial_allocation
-        elif component == 'forestry':
-            config_name = component_config.forestry
-        elif component == 'emissions':
-            config_name = component_config.emissions
-        elif component == 'demand_model':
-            config_name = component_config.demand_sensitivity
-        
-        if config_name is None:
-            print(f"Warning: No configuration found for {component} in scenario {scenario_name}")
-            return None
-        
-        # Get component data using existing data_handler methods
-        try:
-            # Load data differently based on component type
-            if component == 'stockpile':
-                data = self.data_handler.get_stockpile_parameters(config_name)
-                print(f"\n=== Stockpile Configuration for Scenario '{scenario_name}' ===")
-                print(f"Config name: {config_name}")
-                
-                # Override with scenario-specific values if set
-                if component_config.initial_stockpile is not None:
-                    data['initial_stockpile'] = component_config.initial_stockpile
-                    print(f"* initial_stockpile is custom for this scenario")
-                if component_config.initial_surplus is not None:
-                    data['initial_surplus'] = component_config.initial_surplus
-                    print(f"* initial_surplus is custom for this scenario")
-                if component_config.liquidity_factor is not None:
-                    data['liquidity_factor'] = component_config.liquidity_factor
-                    print(f"* liquidity_factor is custom for this scenario")
-                if component_config.discount_rate is not None:
-                    data['discount_rate'] = component_config.discount_rate
-                    print(f"* discount_rate is custom for this scenario")
-                if component_config.payback_period is not None:
-                    data['payback_period'] = component_config.payback_period
-                    print(f"* payback_period is custom for this scenario")
-                if component_config.stockpile_usage_start_year is not None:
-                    data['stockpile_usage_start_year'] = component_config.stockpile_usage_start_year
-                    print(f"* stockpile_usage_start_year is custom for this scenario")
-                
-                # Format and print
-                print("\nStockpile Parameters:")
-                print(f"  Initial Stockpile: {data['initial_stockpile']:,.0f} kt CO₂-e")
-                print(f"  Initial Surplus: {data['initial_surplus']:,.0f} kt CO₂-e")
-                print(f"  Liquidity Factor: {data['liquidity_factor']:.2%}")
-                print(f"  Discount Rate: {data['discount_rate']:.2%}")
-                print(f"  Payback Period: {data['payback_period']} years")
-                print(f"  Stockpile Usage Start Year: {data['stockpile_usage_start_year']}")
-                print(f"  Stockpile Reference Year: {data['stockpile_reference_year']}")
-                
-                # Return formatted data as dict for potential further use
-                return data
-                
-            elif component == 'auction':
-                data = self.data_handler.get_auction_data(config_name)
-                print(f"\n=== Auction Configuration for Scenario '{scenario_name}' ===")
-                print(f"Config name: {config_name}")
-                
-                # Print summary of time series
-                print("\nAuction Parameters:")
-                years_to_show = min(5, len(data.index))
-                print(f"  Base Auction Volumes (first {years_to_show} years):")
-                for i, year in enumerate(data.index[:years_to_show]):
-                    print(f"    {year}: {data.loc[year, 'base_volume']:,.0f} kt CO₂-e")
-                if len(data.index) > years_to_show:
-                    print(f"    ... {len(data.index) - years_to_show} more years")
-                
-                # Show CCR parameters
-                print("\n  Cost Containment Reserve (CCR) Parameters:")
-                ccr_years = min(3, len(data.index))
-                for i, year in enumerate(data.index[:ccr_years]):
-                    print(f"    {year}:")
-                    print(f"      CCR1 Price Trigger: ${data.loc[year, 'ccr_trigger_price_1']:.2f}")
-                    print(f"      CCR1 Volume: {data.loc[year, 'ccr_volume_1']:,.0f} kt CO₂-e")
-                    print(f"      CCR2 Price Trigger: ${data.loc[year, 'ccr_trigger_price_2']:.2f}")
-                    print(f"      CCR2 Volume: {data.loc[year, 'ccr_volume_2']:,.0f} kt CO₂-e")
-                if len(data.index) > ccr_years:
-                    print(f"    ... {len(data.index) - ccr_years} more years")
-                
-                # Return data for potential further use
-                return data
-                
-            elif component == 'industrial':
-                data = self.data_handler.get_industrial_allocation_data(config_name)
-                print(f"\n=== Industrial Allocation Configuration for Scenario '{scenario_name}' ===")
-                print(f"Config name: {config_name}")
-                
-                # Print summary of allocation data
-                print("\nIndustrial Allocation Volumes (first 5 years):")
-                years_to_show = min(5, len(data.index))
-                for i, year in enumerate(data.index[:years_to_show]):
-                    print(f"  {year}: {data.loc[year, 'baseline_allocation']:,.0f} kt CO₂-e")
-                if len(data.index) > years_to_show:
-                    print(f"  ... {len(data.index) - years_to_show} more years")
-                    
-                # Return data for potential further use
-                return data
-                
-            elif component == 'forestry':
-                data = self.data_handler.get_forestry_data(config_name)
-                # Also get forestry variables if available
-                variables = self.data_handler.get_forestry_variables(config_name)
-                
-                print(f"\n=== Forestry Configuration for Scenario '{scenario_name}' ===")
-                print(f"Config name: {config_name}")
-                
-                # Print summary of forestry data
-                print("\nForestry Supply Volumes (first 5 years):")
-                years_to_show = min(5, len(data.index))
-                for i, year in enumerate(data.index[:years_to_show]):
-                    print(f"  {year}: {data.loc[year, 'forestry_supply']:,.0f} kt CO₂-e")
-                if len(data.index) > years_to_show:
-                    print(f"  ... {len(data.index) - years_to_show} more years")
-                
-                if not variables.empty:
-                    print("\nForestry Variables Available:")
-                    for col in variables.columns:
-                        print(f"  - {col}")
-                
-                # Return data for potential further use
-                return {'supply': data, 'variables': variables}
-                
-            elif component == 'emissions':
-                data = self.data_handler.get_emissions_data(config_name)
-                
-                print(f"\n=== Emissions Configuration for Scenario '{scenario_name}' ===")
-                print(f"Config name: {config_name}")
-                
-                # Process and display data
-                if 'Year' in data.columns and 'Value' in data.columns:
-                    # Group by year
-                    emissions_by_year = data.set_index('Year')['Value']
-                    
-                    print("\nEmissions Baseline (first 5 years):")
-                    years_to_show = min(5, len(emissions_by_year.index))
-                    for i, year in enumerate(sorted(emissions_by_year.index)[:years_to_show]):
-                        print(f"  {year}: {emissions_by_year[year]:,.0f} kt CO₂-e")
-                    if len(emissions_by_year.index) > years_to_show:
-                        print(f"  ... {len(emissions_by_year.index) - years_to_show} more years")
-                else:
-                    print("Warning: Emissions data structure doesn't match expected format.")
-                
-                # Return data for potential further use
-                return data
-                
-            elif component == 'demand_model':
-                model_number = component_config.demand_model_number
-                data = self.data_handler.get_demand_model(config_name, model_number)
-                
-                print(f"\n=== Demand Model Configuration for Scenario '{scenario_name}' ===")
-                print(f"Config name: {config_name}")
-                print(f"Model number: {model_number}")
-                
-                # Display scalar parameters
-                print("\nDemand Model Parameters:")
-                scalar_params = ['constant', 'reduction_to_t1', 'price', 'discount_rate', 'forward_years']
-                for param in scalar_params:
-                    if param in data:
-                        print(f"  {param}: {data[param]}")
-                
-                # Return data for potential further use
-                return data
-                
-        except Exception as e:
-            print(f"Error retrieving {component} data: {str(e)}")
-            return None
 
-    def show_parameter(self, parameter_name: str, component: str, scenario_index: int = 0, scenario_name: str = None):
-        """
-        Display a specific parameter value for a component and scenario.
-        
-        Args:
-            parameter_name: Name of the parameter to display
-            component: Component the parameter belongs to
-            scenario_index: Index of the scenario to inspect (default: 0)
-            scenario_name: Name of the scenario to inspect (overrides scenario_index if provided)
-            
-        Returns:
-            Value of the parameter, or None if not found
-        """
-        if not self._primed:
-            raise ValueError("Model must be primed before showing parameters. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
-        # Validate scenario_index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario name for display
-        scenario_name = self.scenarios[scenario_index]
-        
-        # Get all component data
-        all_data = self.show_inputs(component, scenario_index)
-        
-        if all_data is None:
-            return None
-            
-        # Convert DataFrame to dict if needed
-        if hasattr(all_data, 'to_dict'):
-            all_data = all_data.to_dict()
-        
-        # Handle nested dictionaries (like forestry with 'supply' and 'variables')
-        if isinstance(all_data, dict) and component == 'forestry' and 'supply' in all_data:
-            # For forestry, check if parameter is in supply data
-            if parameter_name in all_data['supply']:
-                print(f"\nParameter '{parameter_name}' for {component} in scenario '{scenario_name}':")
-                print(f"  Value: {all_data['supply'][parameter_name]}")
-                return all_data['supply'][parameter_name]
-            else:
-                print(f"Parameter '{parameter_name}' not found in {component} supply data.")
-                return None
-        
-        # Regular parameter lookup
-        if parameter_name in all_data:
-            value = all_data[parameter_name]
-            print(f"\nParameter '{parameter_name}' for {component} in scenario '{scenario_name}':")
-            
-            # Format display based on parameter type
-            if isinstance(value, float):
-                if parameter_name in ['liquidity_factor', 'discount_rate']:
-                    print(f"  Value: {value:.2%}")
-                else:
-                    print(f"  Value: {value:,.4f}")
-            else:
-                print(f"  Value: {value}")
-            
-            return value
-        else:
-            print(f"Parameter '{parameter_name}' not found in {component} data.")
-            return None
-
-    def show_series(self, series_name: str, component: str, scenario_index: int = 0, scenario_name: str = None, max_rows: int = 10):
-        """
-        Display a time series from a component for a specific scenario.
-        
-        Args:
-            series_name: Name of the time series to display
-            component: Component the series belongs to
-            scenario_index: Index of the scenario to inspect (default: 0)
-            scenario_name: Name of the scenario to inspect (overrides scenario_index if provided)
-            max_rows: Maximum number of rows to display (default: 10)
-            
-        Returns:
-            Series object containing the requested time series, or None if not found
-        """
-        if not self._primed:
-            raise ValueError("Model must be primed before showing series data. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
-        # Validate scenario_index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario name for display
-        scenario_name = self.scenarios[scenario_index]
-        
-        # Get component configuration
-        component_config = self.component_configs[scenario_index]
-        
-        # Get config name based on component type
-        config_name = None
-        if component == 'stockpile':
-            config_name = component_config.stockpile
-        elif component == 'auction':
-            config_name = component_config.auctions
-        elif component == 'industrial':
-            config_name = component_config.industrial_allocation
-        elif component == 'forestry':
-            config_name = component_config.forestry
-        elif component == 'emissions':
-            config_name = component_config.emissions
-        elif component == 'demand_model':
-            config_name = component_config.demand_sensitivity
-        
-        if config_name is None:
-            print(f"Warning: No configuration found for {component} in scenario {scenario_name}")
-            return None
-        
-        try:
-            # Get series data based on component type
-            series_data = None
-            
-            if component == 'auction':
-                auction_data = self.data_handler.get_auction_data(config_name)
-                if series_name in auction_data.columns:
-                    series_data = auction_data[series_name]
-                else:
-                    available_series = ", ".join(auction_data.columns)
-                    print(f"Series '{series_name}' not found. Available series: {available_series}")
-                    return None
-                    
-            elif component == 'industrial':
-                industrial_data = self.data_handler.get_industrial_allocation_data(config_name)
-                if series_name in industrial_data.columns:
-                    series_data = industrial_data[series_name]
-                else:
-                    available_series = ", ".join(industrial_data.columns)
-                    print(f"Series '{series_name}' not found. Available series: {available_series}")
-                    return None
-                    
-            elif component == 'forestry':
-                forestry_data = self.data_handler.get_forestry_data(config_name)
-                if series_name in forestry_data.columns:
-                    series_data = forestry_data[series_name]
-                else:
-                    # Try forestry variables as well
-                    forestry_vars = self.data_handler.get_forestry_variables(config_name)
-                    if series_name in forestry_vars.columns:
-                        series_data = forestry_vars[series_name]
-                    else:
-                        supply_series = ", ".join(forestry_data.columns)
-                        var_series = ", ".join(forestry_vars.columns) if not forestry_vars.empty else "none"
-                        print(f"Series '{series_name}' not found.")
-                        print(f"Available supply series: {supply_series}")
-                        print(f"Available variable series: {var_series}")
-                        return None
-                    
-            elif component == 'emissions':
-                emissions_data = self.data_handler.get_emissions_data(config_name)
-                # Typically emissions data comes as Year/Value pairs, so we need to process it
-                if 'Year' in emissions_data.columns and 'Value' in emissions_data.columns:
-                    series_data = emissions_data.set_index('Year')['Value']
-                else:
-                    print(f"Emissions data does not have expected Year/Value structure")
-                    return None
-                    
-            else:
-                print(f"Series data not available for component '{component}'")
-                return None
-            
-            # Display the series
-            if series_data is not None:
-                print(f"\n=== {series_name} Series for {component.title()} in Scenario '{scenario_name}' ===")
-                
-                # Get number of rows to display
-                num_rows = min(max_rows, len(series_data))
-                
-                # Format display based on component and series type
-                print(f"\nFirst {num_rows} values (out of {len(series_data)} total):")
-                
-                for i, (year, value) in enumerate(series_data.items()[:num_rows]):
-                    # Format based on series type
-                    if series_name in ['base_volume', 'ccr_volume_1', 'ccr_volume_2', 'baseline_allocation', 'forestry_supply']:
-                        print(f"  {year}: {value:,.0f} kt CO₂-e")
-                    elif series_name in ['ccr_trigger_price_1', 'ccr_trigger_price_2', 'auction_reserve_price']:
-                        print(f"  {year}: ${value:.2f}")
-                    else:
-                        print(f"  {year}: {value}")
-                
-                if len(series_data) > max_rows:
-                    print(f"  ... {len(series_data) - max_rows} more values")
-                    
-                return series_data
-                
-        except Exception as e:
-            print(f"Error retrieving series '{series_name}' from {component}: {str(e)}")
-            return None
-
-    def set_series(self, series_name: str, data: pd.Series, component: str, scenario_index: int = 0, scenario_name: str = None) -> 'NZUpy':
-        """
-        Set a time series for a specific component and scenario.
-        
-        Args:
-            series_name: Name of the time series to set
-            data: New data for the time series (pandas Series)
-            component: Component the series belongs to ('auction', 'industrial', 'forestry', 'emissions')
-            scenario_index: Index of the scenario to modify (default: 0)
-            scenario_name: Name of the scenario to modify (overrides scenario_index if provided)
-            
-        Returns:
-            Self for method chaining
-        """
-        if not self._primed:
-            raise ValueError("Model must be primed before setting series data. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
-        # Validate scenario_index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario name for display
-        scenario_name = self.scenarios[scenario_index]
-        
-        # Get component configuration for this scenario
-        component_config = self.component_configs[scenario_index]
-        
-        # Handle different components
         if component == 'auction':
-            # Get auction data for this specific scenario
             auction_data = self.data_handler.get_auction_data(
-                config=component_config.auctions,
+                config=component_config.auction,
                 scenario_name=scenario_name
             )
-            
-            # Validate series name
-            valid_series = ['base_volume', 'auction_reserve_price', 'ccr_trigger_price_1', 
-                           'ccr_trigger_price_2', 'ccr_volume_1', 'ccr_volume_2']
+            valid_series = ['base_volume', 'auction_reserve_price', 'ccr_trigger_price_1',
+                            'ccr_trigger_price_2', 'ccr_volume_1', 'ccr_volume_2']
             if series_name not in valid_series:
                 raise ValueError(f"Invalid auction series: '{series_name}'. Valid options: {', '.join(valid_series)}")
-            
-            # Update the series
             auction_data[series_name] = data
-            
-            # Store scenario-specific data
             if scenario_name not in self.data_handler.scenario_data:
                 self.data_handler.scenario_data[scenario_name] = {}
             self.data_handler.scenario_data[scenario_name]['auction'] = auction_data
-            
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
-            
+
         elif component == 'industrial':
-            # Get industrial allocation data for this specific scenario
             industrial_data = self.data_handler.get_industrial_allocation_data(
-                config=component_config.industrial_allocation,
+                config=component_config.industrial,
                 scenario_name=scenario_name
             )
-            
-            # Validate series name
             valid_series = ['baseline_allocation', 'activity_adjustment']
             if series_name not in valid_series:
                 raise ValueError(f"Invalid industrial series: '{series_name}'. Valid options: {', '.join(valid_series)}")
-            
-            # Update the series
             industrial_data[series_name] = data
-            
-            # Store scenario-specific data
             if scenario_name not in self.data_handler.scenario_data:
                 self.data_handler.scenario_data[scenario_name] = {}
             self.data_handler.scenario_data[scenario_name]['industrial'] = industrial_data
-            
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
-            
+
         elif component == 'forestry':
-            # Get forestry data for this specific scenario
             forestry_data = self.data_handler.get_forestry_data(
                 config=component_config.forestry,
                 scenario_name=scenario_name
             )
-            
-            # Validate series name
             valid_series = ['forestry_supply']
             if series_name not in valid_series:
                 raise ValueError(f"Invalid forestry series: '{series_name}'. Valid options: {', '.join(valid_series)}")
-            
-            # Update the series
             forestry_data[series_name] = data
-            
-            # Store scenario-specific data
             if scenario_name not in self.data_handler.scenario_data:
                 self.data_handler.scenario_data[scenario_name] = {}
             self.data_handler.scenario_data[scenario_name]['forestry'] = forestry_data
-            
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
-            
+
         elif component == 'emissions':
-            # Get emissions data for this specific scenario
-            emissions_data = self.data_handler.get_emissions_data(
-                config=component_config.emissions,
-                scenario_name=scenario_name
-            )
-            
             # Validate series name
             valid_series = ['emissions']
             if series_name not in valid_series:
                 raise ValueError(f"Invalid emissions series: '{series_name}'. Valid options: {', '.join(valid_series)}")
-            
-            # Update emissions data specifically for this scenario
             if scenario_name not in self.data_handler.scenario_data:
                 self.data_handler.scenario_data[scenario_name] = {}
-            
-            # Store scenario-specific data
             self.data_handler.scenario_data[scenario_name]['emissions'] = pd.DataFrame({
                 'emissions': data
             })
-            
             print(f"Updated {component}.{series_name} for scenario '{scenario_name}'")
-            
+
         else:
             raise ValueError(f"Invalid component: '{component}'. Valid options: auction, industrial, forestry, emissions")
-        
+
         return self
-
-    def list_parameters(self, component: str, scenario_index: int = 0, scenario_name: str = None):
-        """
-        List all available parameters for a specific component and scenario.
-        
-        Args:
-            component: Component to list parameters for
-            scenario_index: Index of the scenario to inspect (default: 0)
-            scenario_name: Name of the scenario to inspect (overrides scenario_index if provided)
-            
-        Returns:
-            List of parameter names
-        """
-        if not self._primed:
-            raise ValueError("Model must be primed before listing parameters. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
-        # Validate scenario_index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario name for display
-        scenario_name = self.scenarios[scenario_index]
-        
-        # Validate component
-        valid_components = ['stockpile', 'auction', 'industrial', 'forestry', 'emissions', 'demand_model']
-        if component not in valid_components:
-            raise ValueError(f"Invalid component: '{component}'. Valid options: {', '.join(valid_components)}")
-        
-        # Define parameters for each component
-        parameters = {
-            'stockpile': ['initial_stockpile', 'initial_surplus', 'liquidity_factor', 
-                        'discount_rate', 'payback_period', 'stockpile_usage_start_year', 
-                        'stockpile_reference_year'],
-            'demand_model': ['model_number', 'constant', 'reduction_to_t1', 'price', 
-                            'discount_rate', 'forward_years', 'price_conversion_factor'],
-            'auction': ['auction_reserve_price', 'ccr_trigger_price_1', 'ccr_trigger_price_2'],
-            'industrial': [],  # No scalar parameters, only time series
-            'forestry': [],    # No scalar parameters, only time series
-            'emissions': []    # No scalar parameters, only time series
-        }
-        
-        param_list = parameters.get(component, [])
-        
-        print(f"\nAvailable parameters for '{component}' in scenario '{scenario_name}':")
-        if param_list:
-            for param in param_list:
-                print(f"  - {param}")
-        else:
-            print(f"  No scalar parameters available for {component}")
-            if component in ['industrial', 'forestry', 'emissions']:
-                print(f"  {component.title()} component primarily uses time series data.")
-                print(f"  Use show_series() to view available series.")
-        
-        return param_list
-
-    def list_series(self, component: str, scenario_index: int = 0, scenario_name: str = None):
-        """
-        List all available time series for a specific component and scenario.
-        
-        Args:
-            component: Component to list time series for
-            scenario_index: Index of the scenario to inspect (default: 0)
-            scenario_name: Name of the scenario to inspect (overrides scenario_index if provided)
-            
-        Returns:
-            List of series names
-        """
-        if not self._primed:
-            raise ValueError("Model must be primed before listing series. Call prime() first.")
-        
-        # Resolve scenario_index if scenario_name provided
-        if scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario name: '{scenario_name}'. Available scenarios: {', '.join(self.scenarios)}")
-            scenario_index = self.scenarios.index(scenario_name)
-        
-        # Validate scenario_index
-        if scenario_index < 0 or scenario_index >= len(self.scenarios):
-            raise ValueError(f"Invalid scenario index: {scenario_index}. Valid range: 0-{len(self.scenarios)-1}")
-        
-        # Get scenario name for display
-        scenario_name = self.scenarios[scenario_index]
-        
-        # Validate component
-        valid_components = ['auction', 'industrial', 'forestry', 'emissions']
-        if component not in valid_components:
-            raise ValueError(f"Invalid component: '{component}'. Valid options for time series: {', '.join(valid_components)}")
-        
-        # Get component configuration
-        component_config = self.component_configs[scenario_index]
-        
-        # Get config name based on component type
-        config_name = None
-        if component == 'auction':
-            config_name = component_config.auctions
-        elif component == 'industrial':
-            config_name = component_config.industrial_allocation
-        elif component == 'forestry':
-            config_name = component_config.forestry
-        elif component == 'emissions':
-            config_name = component_config.emissions
-        
-        if config_name is None:
-            print(f"Warning: No configuration found for {component} in scenario {scenario_name}")
-            return []
-        
-        try:
-            # Get series data based on component type
-            series_names = []
-            
-            if component == 'auction':
-                auction_data = self.data_handler.get_auction_data(config_name)
-                series_names = list(auction_data.columns)
-                    
-            elif component == 'industrial':
-                industrial_data = self.data_handler.get_industrial_allocation_data(config_name)
-                series_names = list(industrial_data.columns)
-                    
-            elif component == 'forestry':
-                forestry_data = self.data_handler.get_forestry_data(config_name)
-                forestry_vars = self.data_handler.get_forestry_variables(config_name)
-                
-                series_names = list(forestry_data.columns)
-                if not forestry_vars.empty:
-                    var_series = list(forestry_vars.columns)
-                    series_names.extend(var_series)
-                    
-            elif component == 'emissions':
-                # For emissions, we typically just have the emissions series
-                series_names = ['emissions']
-            
-            print(f"\nAvailable time series for '{component}' in scenario '{scenario_name}':")
-            for series in series_names:
-                print(f"  - {series}")
-                
-            return series_names
-                
-        except Exception as e:
-            print(f"Error retrieving series list for {component}: {str(e)}")
-            return []
 
     def use_price_control_config(self, config_name: str, scenario_index: int = None, scenario_name: str = None):
         """

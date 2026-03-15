@@ -185,48 +185,6 @@ class HistoricalDataManager:
         # Combine and sort
         return pd.concat([hist_data, model_data]).sort_index()
     
-    def get_stockpile_start_values(self, year: int, config: str = 'central') -> Dict[str, float]:
-        """
-        Get stockpile start values for a specific year and config.
-        
-        Args:
-            year: Reference year for stockpile values
-            config: Configuration name (defaults to 'central')
-            
-        Returns:
-            Dictionary with 'stockpile' and 'surplus' values
-        """
-        if self.stockpile_start_data.empty:
-            print(f"Warning: No stockpile start data available, using defaults")
-            return {'stockpile': 159902, 'surplus': 67300}  # Default values
-        
-        # First try exact match on year and config
-        year_config_match = self.stockpile_start_data[
-            (self.stockpile_start_data['Year'] == year) & 
-            (self.stockpile_start_data['Config'].str.lower() == config.lower())
-        ]
-        
-        if not year_config_match.empty:
-            # Get stockpile and surplus values
-            stockpile = year_config_match[year_config_match['Variable'] == 'stockpile']['Value'].iloc[0]
-            surplus = year_config_match[year_config_match['Variable'] == 'surplus']['Value'].iloc[0]
-            return {'stockpile': stockpile, 'surplus': surplus}
-        
-        # If no exact match, try central config for same year
-        if config != 'central':
-            central_match = self.stockpile_start_data[
-                (self.stockpile_start_data['Year'] == year) & 
-                (self.stockpile_start_data['Config'] == 'central')
-            ]
-            if not central_match.empty:
-                stockpile = central_match[central_match['Variable'] == 'stockpile']['Value'].iloc[0]
-                surplus = central_match[central_match['Variable'] == 'surplus']['Value'].iloc[0]
-                return {'stockpile': stockpile, 'surplus': surplus}
-        
-        # If still no match, use defaults
-        print(f"Warning: No stockpile start values found for year {year} and config {config}, using defaults")
-        return {'stockpile': 159902, 'surplus': 67300}  # Default values
-    
     def convert_to_nominal(self, real_prices: pd.Series) -> pd.Series:
         """Convert real prices (2023 NZD) to nominal prices."""
         return convert_real_to_nominal(real_prices, cpi_data=self.cpi_data)

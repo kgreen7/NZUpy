@@ -1,87 +1,32 @@
 """
 Configuration module for the NZUpy model.
-
-This module provides functionality for loading, validating, and managing
-configuration parameters for the NZUpy model. NOTE: Mostly phased out.
 """
 
 
-from typing import Dict, Any, Optional, List, Union
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-import pandas as pd
+from typing import Dict, Optional
+from dataclasses import dataclass, field
 
 # Type aliases for clarity
 ConfigName = str       # Name of a component input configuration (e.g., "central", "CCC_CPR")
 ScenarioName = str     # Name of a model run/scenario (e.g., "Low Carbon Price")
 Year = int             # Calendar year
 
-@dataclass
-class SupplyConfig:
-    """Configuration for supply components."""
-    
-    # Auction parameters
-    auction_volumes: Dict[Year, float] = field(default_factory=dict)
-
-
-
-
-@dataclass
-class DemandConfig:
-    """Configuration for demand components."""
-    
-    # Base emissions parameters
-    base_emissions: Dict[Year, float] = field(default_factory=dict)
-
-
-
-
-@dataclass
-class OptimiserConfig:
-    """Configuration for the optimisation process."""
-    
-    coarse_step: int = 10
-    fine_step: int = 1
-    max_rate: int = 200
-    find_min: bool = True
-    max_iterations: int = 5
-    debug: bool = False
-    penalise_shortfalls: bool = True
-
 
 @dataclass
 class ModelConfig:
-    """
-    Full configuration for the NZ ETS model.
-    
-    This class represents the complete configuration for the model,
-    including all parameters and settings for each component.
-    """
-    
-    # Required parameters (no defaults)
-    initial_stockpile: float
-    initial_surplus: float  
-    liquidity_factor: float
-    
-    # Parameters with defaults
+    """Temporal, price-control, and optimiser configuration for the NZ ETS model."""
+
     start_year: Year = 2024
     end_year: Year = 2050
-    
-    # Price control parameters
     price_control_values: Dict[Year, float] = field(default_factory=dict)
-    # Component configurations
-    supply: SupplyConfig = field(default_factory=SupplyConfig)
-    demand: DemandConfig = field(default_factory=DemandConfig)
-    optimiser: OptimiserConfig = field(default_factory=OptimiserConfig)
-    
-    # Input configuration selection
-    input_config_set: ConfigName = "central"  # Options: "central", "CCC_CPR", "CCC_DP", etc.
-    
-    # Historical prices
-    historical_prices: Dict[Year, float] = field(default_factory=dict)
 
-    # Additional parameters
-    additional_params: Dict[str, Any] = field(default_factory=dict)
+    # Optimiser settings
+    coarse_step: int = 10
+    fine_step: int = 1
+    max_rate: int = 200
+    max_iterations: int = 5
+    debug: bool = False
+    penalise_shortfalls: bool = False
     
 
 @dataclass
@@ -96,19 +41,19 @@ class ComponentConfig:
     Attributes:
         model_params: Model parameters configuration name (default: "central")
         emissions: Emissions configuration name (e.g., "CCC_CPR", "CCC_DP", "central")
-        industrial_allocation: Industrial allocation configuration name (default: "central")
-        auctions: Auction configuration name (e.g., "central")
+        industrial: Industrial allocation configuration name (default: "central")
+        auction: Auction configuration name (e.g., "central")
         forestry: Forestry configuration name (e.g., "low", "central", "high")
         demand_sensitivity: Demand sensitivity configuration (e.g., "central", "95pc_lower", "stde_upper")
         demand_model_number: Demand model selection (1=MACC model, 2=ENZ model)
         stockpile: Stockpile configuration name (e.g., "central", "high", "low")
     """
-    
+
     # Input configuration selection for each component
     model_params: ConfigName = "central"
     emissions: ConfigName = "central"
-    industrial_allocation: ConfigName = "central"
-    auctions: ConfigName = "central"
+    industrial: ConfigName = "central"
+    auction: ConfigName = "central"
     forestry: ConfigName = "central"
     stockpile: ConfigName = "central"
     
@@ -124,4 +69,16 @@ class ComponentConfig:
     payback_period: Optional[int] = None
     stockpile_usage_start_year: Optional[int] = None
     stockpile_reference_year: Optional[int] = None
+
+    # Forestry mode settings
+    forestry_mode: str = 'exogenous'            # 'exogenous' or 'endogenous'
+    manley_sensitivity: str = 'central'          # 'low', 'central', 'high' — selects f and LMV
+    forestry_price_assumption: str = 'future'    # 'future' or 'current'
+
+    # Manley parameter overrides (None = use CSV value)
+    manley_f: Optional[float] = None
+    manley_LMV: Optional[float] = None
+    manley_LUC_limit: Optional[float] = None
+    forestry_discount_rate: Optional[float] = None
+    forestry_forward_years: Optional[int] = None
 

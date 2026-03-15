@@ -65,23 +65,26 @@ class StockpileSupply:
         self.extended_years = extended_years or []
         stockpile_params = stockpile_params or {}
         
-        # Remove default fallback values and require parameters to be provided
-        self.liquidity_factor = liquidity_factor or stockpile_params.get('liquidity_factor')
-        if self.liquidity_factor is None:
-            raise ValueError("liquidity_factor must be provided either directly or via stockpile_params")
-        
+        def _require(name, override, params):
+            """Get a required parameter from override or params dict; raise clearly if missing."""
+            val = override if override is not None else params.get(name)
+            if val is None:
+                raise ValueError(
+                    f"Required stockpile parameter '{name}' not set. "
+                    f"Call fill_defaults() or fill_component('stockpile', config=...) before running."
+                )
+            return val
+
+        self.liquidity_factor = _require('liquidity_factor', liquidity_factor, stockpile_params)
         if not 0 <= self.liquidity_factor <= 1:
             raise ValueError(f"liquidity_factor must be between 0 and 1, got {self.liquidity_factor}")
-        
-        # Set the initial stockpile and surplus (year-end values)
-        self.initial_stockpile = initial_stockpile or stockpile_params.get('initial_stockpile', 159902)
-        self.initial_surplus = initial_surplus or stockpile_params.get('initial_surplus', 67300)
-        self.payback_period = payback_period or stockpile_params.get('payback_period', 15)
-        self.discount_rate = discount_rate or stockpile_params.get('discount_rate', 0.05)
-        
-        # Set reference and usage start years with proper defaults
-        self.stockpile_reference_year = stockpile_reference_year or stockpile_params.get('stockpile_reference_year', 2023)
-        self.stockpile_usage_start_year = stockpile_usage_start_year or stockpile_params.get('stockpile_usage_start_year', 2024)
+
+        self.initial_stockpile = _require('initial_stockpile', initial_stockpile, stockpile_params)
+        self.initial_surplus   = _require('initial_surplus',   initial_surplus,   stockpile_params)
+        self.payback_period    = _require('payback_period',    payback_period,    stockpile_params)
+        self.discount_rate     = _require('discount_rate',     discount_rate,     stockpile_params)
+        self.stockpile_reference_year   = _require('stockpile_reference_year',   stockpile_reference_year,   stockpile_params)
+        self.stockpile_usage_start_year = _require('stockpile_usage_start_year', stockpile_usage_start_year, stockpile_params)
         
         # Validate the years make sense
         if self.stockpile_reference_year >= self.stockpile_usage_start_year:

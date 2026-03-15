@@ -477,12 +477,24 @@ class OutputFormat:
                     forestry_results = result['model']['forestry_results']
                 
                 if forestry_results is not None:
+                    # Primary supply output (always present)
                     if 'total_supply' in forestry_results:
                         data[(scenario, 'removals')] = forestry_results['total_supply']
                     elif 'static_supply' in forestry_results:
                         data[(scenario, 'removals')] = forestry_results['static_supply']
                     elif 'manley_supply' in forestry_results:
                         data[(scenario, 'removals')] = forestry_results['manley_supply']
+
+                    # Manley diagnostic columns (endogenous mode only; absent in exogenous)
+                    for col in [
+                        'historic_supply', 'manley_supply', 'manley_price',
+                        'manley_planting_total', 'manley_planting_permanent',
+                        'manley_planting_production', 'manley_planting_natural',
+                    ]:
+                        series = forestry_results.get(col) if isinstance(forestry_results, dict) \
+                            else (forestry_results[col] if col in forestry_results.columns else None)
+                        if series is not None and series.any():
+                            data[(scenario, col)] = series
         
         # Create DataFrame with multi-index columns
         if data:
