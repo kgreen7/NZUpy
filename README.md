@@ -33,7 +33,7 @@ git clone https://github.com/kgreen7/NZUpy.git
 cd NZUpy
 ```
 
-2. Create and activate a virtual environment (recommended):
+1. Create and activate a virtual environment (recommended):
 
 ```bash
 # Create a virtual environment
@@ -46,11 +46,19 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-3. Install required packages:
+2. Install required packages:
 
 ```bash
 pip install -r requirements.txt
 ```
+
+3. Register the virtual environment as a Jupyter kernel:
+
+```bash
+python -m ipykernel install --user --name=nzupy --display-name "Python (NZUpy)"
+```
+
+4. Launch Jupyter and select the **"Python (NZUpy)"** kernel when opening a notebook (Kernel → Change Kernel → Python (NZUpy)).
 
 (Optional) If you plan to develop or modify the code, you can install the package in development mode:
 

@@ -59,8 +59,6 @@ def _get_scenario_data(model, data_type: str, scenario: Optional[str] = None, va
         'balance': {'attr': 'stockpile', 'var': 'balance'},
         'surplus_balance': {'attr': 'stockpile', 'var': 'surplus_balance'},
         'non_surplus_balance': {'attr': 'stockpile', 'var': 'non_surplus_balance'},
-        'without_forestry': {'attr': 'stockpile', 'var': 'without_forestry'},
-        
         # Auction category - using exact schema names
         'base_supplied': {'attr': 'auctions', 'var': 'base_supplied'},
         'ccr1_supplied': {'attr': 'auctions', 'var': 'ccr1_supplied'},
@@ -675,12 +673,6 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                 surplus_balance = model.stockpile[scenario, 'surplus_balance'] if (scenario, 'surplus_balance') in model.stockpile.columns else None
                 non_surplus_balance = model.stockpile[scenario, 'non_surplus_balance'] if (scenario, 'non_surplus_balance') in model.stockpile.columns else None
                 
-                # Optional: Get stockpile without forestry if available
-                has_without_forestry = False
-                if (scenario, 'without_forestry') in model.stockpile.columns:
-                    stockpile_without_forestry = model.stockpile[scenario, 'without_forestry']
-                    has_without_forestry = True
-                
                 # Continue with chart creation only if we have required data
                 if stockpile_balance is not None and surplus_balance is not None and non_surplus_balance is not None:
                     # Filter by years if specified
@@ -694,9 +686,12 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                         stockpile_balance = stockpile_balance[mask]
                         surplus_balance = surplus_balance[mask]
                         non_surplus_balance = non_surplus_balance[mask]
-                        if has_without_forestry:
-                            stockpile_without_forestry = stockpile_without_forestry[mask]
                     
+                    # Build "31 Dec YYYY" tick labels from the (filtered) year index
+                    x_years = stockpile_balance.index.tolist()
+                    tick_vals = x_years
+                    tick_text = [f"31 Dec {y}" for y in x_years]
+
                     # Add surplus area
                     fig.add_trace(go.Scatter(
                         x=surplus_balance.index,
@@ -706,9 +701,9 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                         line=dict(width=1, color=NZUPY_CHART_STYLE['colors']['diverging_09_bold']),
                         stackgroup='one',
                         fillcolor=NZUPY_CHART_STYLE['colors']['forestry_transparent'],
-                        hovertemplate="Year: %{x}<br>Surplus Balance: %{y:.2f} kt CO₂-e<extra></extra>"
+                        hovertemplate="31 Dec %{x}<br>Surplus Balance: %{y:.2f} kt CO₂-e<extra></extra>"
                     ))
-                    
+
                     # Add non-surplus area
                     fig.add_trace(go.Scatter(
                         x=non_surplus_balance.index,
@@ -718,9 +713,9 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                         line=dict(width=1, color=NZUPY_CHART_STYLE['colors']['diverging_01_bold']),
                         stackgroup='one',
                         fillcolor=NZUPY_CHART_STYLE['colors']['diverging_01_transparent'],
-                        hovertemplate="Year: %{x}<br>Non-Surplus Balance: %{y:.2f} kt CO₂-e<extra></extra>"
+                        hovertemplate="31 Dec %{x}<br>Non-Surplus Balance: %{y:.2f} kt CO₂-e<extra></extra>"
                     ))
-                    
+
                     # Add total stockpile line
                     fig.add_trace(go.Scatter(
                         x=stockpile_balance.index,
@@ -728,24 +723,19 @@ def stockpile_balance_chart(model, scenario=None, start_year=None, end_year=None
                         name="Total Stockpile",
                         mode='lines',
                         line=dict(color=NZUPY_CHART_STYLE['colors']['reference_primary'], width=4),
-                        hovertemplate="Year: %{x}<br>Total Stockpile: %{y:.2f} kt CO₂-e<extra></extra>"
+                        hovertemplate="31 Dec %{x}<br>Total Stockpile: %{y:.2f} kt CO₂-e<extra></extra>"
                     ))
-                    
-                    # Add stockpile without forestry if available
-                    if has_without_forestry:
-                        fig.add_trace(go.Scatter(
-                            x=stockpile_without_forestry.index,
-                            y=stockpile_without_forestry.values,
-                            name="Stockpile Without Forestry",
-                            mode='lines',
-                            line=dict(color=NZUPY_CHART_STYLE['colors']['reference_secondary'], width=4, dash='dash'),
-                            hovertemplate="Year: %{x}<br>Stockpile Without Forestry: %{y:.2f} kt CO₂-e<extra></extra>"
-                        ))
-                    
+
                     # Set up layout
                     fig.update_layout(
                         title=f"Stockpile Balance - {scenario}",
-                        xaxis_title="Year",
+                        xaxis=dict(
+                            title="Year (31 December)",
+                            tickmode='array',
+                            tickvals=tick_vals,
+                            ticktext=tick_text,
+                            tickangle=45,
+                        ),
                         yaxis_title="NZUs (thousands) /Kt CO₂-e)",
                         yaxis=dict(
                             rangemode='tozero'

@@ -383,6 +383,20 @@ class ModelRunner:
             'auction_results': self.model.auction_results.copy(),
             'industrial_results': self.model.industrial_results.copy(),
             'stockpile_results': stockpile_results.copy(),
+            'stockpile_reference_year': (
+                self.model.stockpile.stockpile_reference_year
+                if hasattr(self.model.stockpile, 'stockpile_reference_year') else None
+            ),
+            'stockpile_initial_values': (
+                {
+                    'balance': self.model.stockpile.initial_stockpile,
+                    'surplus_balance': self.model.stockpile.initial_surplus,
+                    'non_surplus_balance': (
+                        self.model.stockpile.initial_stockpile - self.model.stockpile.initial_surplus
+                    ),
+                }
+                if hasattr(self.model.stockpile, 'initial_stockpile') else None
+            ),
             'forestry_results': self.model.forestry_results.copy(),
             'price_response_results': self.model.price_response_results.copy(),
             'emissions_results': self.model.emissions_results.copy(),

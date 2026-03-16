@@ -258,7 +258,7 @@ class ScenarioManager:
         
         # Load endogenous forestry data if needed (Task 3/8)
         forestry_mode = getattr(component_config, 'forestry_mode', 'exogenous')
-        historic_removals = None
+        historical_removals = None
         yield_increments = None
         afforestation_projections = None
         manley_params = None
@@ -266,12 +266,12 @@ class ScenarioManager:
         if forestry_mode == 'endogenous':
             try:
                 forestry_config = component_config.forestry or 'central'
-                historic_removals = self.model.data_handler.get_historic_removals(
+                historical_removals = self.model.data_handler.get_historical_removals(
                     config=forestry_config
                 )
             except Exception as e:
                 raise ValueError(
-                    f"Failed to load historic_removals for config '{component_config.forestry}': {e}"
+                    f"Failed to load historical_removals for config '{component_config.forestry}': {e}"
                 )
             try:
                 yield_increments = self.model.data_handler.get_yield_increments()
@@ -300,12 +300,12 @@ class ScenarioManager:
                 raise ValueError(f"Failed to load Manley parameters: {e}")
 
         # Get forestry variables data (held/surrender → fed to StockpileSupply)
-        # Task 8: In endogenous mode, use historic_removals held/surrender instead
+        # Task 8: In endogenous mode, use historical_removals held/surrender instead
         #         of the combined values from removals.csv.
         try:
-            if forestry_mode == 'endogenous' and historic_removals is not None:
-                # Build forestry_variables from historic_removals columns
-                forestry_variables = historic_removals.rename(columns={
+            if forestry_mode == 'endogenous' and historical_removals is not None:
+                # Build forestry_variables from historical_removals columns
+                forestry_variables = historical_removals.rename(columns={
                     'historic_forestry_tradeable': 'forestry_tradeable',
                     'historic_forestry_held': 'forestry_held',
                     'historic_forestry_surrender': 'forestry_surrender',
@@ -372,7 +372,8 @@ class ScenarioManager:
                         'stockpile_usage_start_year': getattr(component_config, 'stockpile_usage_start_year', None),
                         'stockpile_reference_year': getattr(component_config, 'stockpile_reference_year', None)
                     },
-                    scenario_name=scenario_name
+                    scenario_name=scenario_name,
+                    model_start_year=self.model.config.start_year
                 )
         except Exception as e:
             raise ValueError(f"Failed to load stockpile parameters for config '{stockpile_config}': {e}")
@@ -419,7 +420,7 @@ class ScenarioManager:
                 forestry_data=forestry_data,
                 mode=forestry_mode,
                 manley_config=component_config if forestry_mode == 'endogenous' else None,
-                historic_removals=historic_removals,
+                historical_removals=historical_removals,
                 yield_increments=yield_increments,
                 afforestation_projections=afforestation_projections,
                 manley_params=manley_params,

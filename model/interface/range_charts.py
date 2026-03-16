@@ -381,7 +381,12 @@ def stockpile_chart_with_uncertainty(model, start_year: Optional[int] = None,
     
     # Filter data to selected years
     filtered_df = stockpile_df.loc[years_to_include]
-    
+
+    # Build "31 Dec YYYY" tick labels from the (filtered) year index
+    x_years = filtered_df.index.tolist()
+    tick_vals = x_years
+    tick_text = [f"31 Dec {y}" for y in x_years]
+
     # Add 95% confidence interval band (between 95% Lower and 95% Upper)
     fig.add_trace(go.Scatter(
         x=filtered_df.index.tolist() + filtered_df.index.tolist()[::-1],
@@ -418,27 +423,16 @@ def stockpile_chart_with_uncertainty(model, start_year: Optional[int] = None,
         hovertemplate="Year: %{x}<br>Stockpile: %{y:.2f} kt CO₂-e<extra></extra>"
     ))
     
-    # Try to add stockpile without forestry for the central scenario
-    try:
-        without_forestry_df = model.stockpile.xs('without_forestry', level='variable', axis=1)
-        if central_scenario in without_forestry_df.columns:
-            central_without_forestry = without_forestry_df[central_scenario].loc[years_to_include]
-            
-            fig.add_trace(go.Scatter(
-                x=central_without_forestry.index,
-                y=central_without_forestry.values,
-                line=dict(color=NZUPY_CHART_STYLE["colors"]["reference_secondary"], width=4, dash='dash'),
-                name='Without Forestry (Central)',
-                mode='lines',
-                hovertemplate="Year: %{x}<br>Without Forestry: %{y:.2f} kt CO₂-e<extra></extra>"
-            ))
-    except KeyError:
-        print("Could not add 'without_forestry' trace - variable not found")
-    
     # Update layout
     fig.update_layout(
         title='Stockpile Balance with Uncertainty',
-        xaxis_title='Year',
+        xaxis=dict(
+            title="Year (31 December)",
+            tickmode='array',
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            tickangle=45,
+        ),
         yaxis_title='Stockpile Balance (kt CO₂-e)',
         yaxis=dict(
             rangemode='tozero'  # Using 'tozero' since stockpile can be negative

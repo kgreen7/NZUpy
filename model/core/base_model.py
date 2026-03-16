@@ -623,7 +623,8 @@ class NZUpy:
                 for k, v in data.items():
                     print(f"  {k}: {v}")
             elif component == 'stockpile':
-                data = self.data_handler.get_stockpile_parameters(config=config_name)
+                model_start_year = self.config.start_year if self._time_defined else None
+                data = self.data_handler.get_stockpile_parameters(config=config_name, model_start_year=model_start_year)
                 for k, v in data.items():
                     print(f"  {k}: {v}")
             else:
@@ -663,7 +664,10 @@ class NZUpy:
                 comparison['diff'] = comparison[config_b] - comparison[config_a]
                 print(comparison.to_string())
             elif component in ('demand_model', 'stockpile'):
-                kwargs = {'model_number': 2} if component == 'demand_model' else {}
+                if component == 'demand_model':
+                    kwargs = {'model_number': 2}
+                else:
+                    kwargs = {'model_start_year': self.config.start_year if self._time_defined else None}
                 getter = (self.data_handler.get_demand_model
                           if component == 'demand_model'
                           else self.data_handler.get_stockpile_parameters)
@@ -800,11 +804,14 @@ class NZUpy:
                             'payback_period': scenario_config.payback_period,
                             'stockpile_usage_start_year': scenario_config.stockpile_usage_start_year,
                             'stockpile_reference_year': scenario_config.stockpile_reference_year
-                        }
+                        },
+                        model_start_year=self.config.start_year
                     )
                 else:
                     # If no config specified, use model parameters
-                    stockpile_params = self.data_handler.get_stockpile_parameters()
+                    stockpile_params = self.data_handler.get_stockpile_parameters(
+                        model_start_year=self.config.start_year
+                    )
             except Exception as e:
                 raise ValueError(f"Failed to validate stockpile parameters for scenario '{scenario_name}': {e}")
             

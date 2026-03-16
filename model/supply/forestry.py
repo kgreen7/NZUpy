@@ -4,7 +4,7 @@ Forestry supply component for the NZ ETS model.
 Supports two modes:
 - 'exogenous': static supply from removals.csv (default)
 - 'endogenous': price-responsive Manley logistic equation for new-forest planting,
-  combined with historic (old-forest) exogenous data from historic_removals.csv.
+  combined with historic (old-forest) exogenous data from historical_removals.csv.
 """
 
 import pandas as pd
@@ -21,7 +21,7 @@ class ForestrySupply:
     In endogenous mode (Manley), new-forest supply is calculated each solver
     iteration via the Manley logistic equation → vintage convolution chain.
     Historic (old-forest) supply, held, and surrender come from
-    historic_removals.csv and are price-independent.
+    historical_removals.csv and are price-independent.
     """
 
     def __init__(
@@ -30,7 +30,7 @@ class ForestrySupply:
         forestry_data: pd.DataFrame,
         mode: str = 'exogenous',
         manley_config: Optional[Any] = None,  # ComponentConfig dataclass
-        historic_removals: Optional[pd.DataFrame] = None,
+        historical_removals: Optional[pd.DataFrame] = None,
         yield_increments: Optional[Dict[str, np.ndarray]] = None,
         afforestation_projections: Optional[pd.DataFrame] = None,
         manley_params: Optional[Dict[str, Any]] = None,
@@ -45,7 +45,7 @@ class ForestrySupply:
             mode: 'exogenous' (default) or 'endogenous'.
             manley_config: ComponentConfig fields that control Manley behaviour
                            (forestry_price_assumption, manley_f, manley_LMV, etc.).
-            historic_removals: DataFrame indexed by year with columns
+            historical_removals: DataFrame indexed by year with columns
                                historic_forestry_tradeable, historic_forestry_held,
                                historic_forestry_surrender. Required in endogenous mode.
             yield_increments: Pre-computed annual yield increments per forest type
@@ -62,7 +62,7 @@ class ForestrySupply:
         self.removals = forestry_data['forestry_tradeable']
 
         # ---- Endogenous-mode data ----
-        self.historic_removals = historic_removals
+        self.historical_removals = historical_removals
         self.yield_increments = yield_increments
         self.afforestation_projections = afforestation_projections
         self.manley_params = manley_params or {}
@@ -94,10 +94,10 @@ class ForestrySupply:
 
     def _init_endogenous(self):
         """Validate and pre-process data for endogenous mode."""
-        if self.historic_removals is None:
+        if self.historical_removals is None:
             raise ValueError(
-                "historic_removals required for endogenous forestry mode. "
-                "Ensure historic_removals.csv is loaded."
+                "historical_removals required for endogenous forestry mode. "
+                "Ensure historical_removals.csv is loaded."
             )
         if self.yield_increments is None:
             raise ValueError(
@@ -110,17 +110,17 @@ class ForestrySupply:
                 "Ensure afforestation_projections.csv is loaded."
             )
 
-        # Align historic_removals to model years (fill missing years with 0)
+        # Align historical_removals to model years (fill missing years with 0)
         self.historic_tradeable = (
-            self.historic_removals['historic_forestry_tradeable']
+            self.historical_removals['historic_forestry_tradeable']
             .reindex(self.years, fill_value=0.0)
         )
         self.historic_held = (
-            self.historic_removals['historic_forestry_held']
+            self.historical_removals['historic_forestry_held']
             .reindex(self.years, fill_value=0.0)
         )
         self.historic_surrender = (
-            self.historic_removals['historic_forestry_surrender']
+            self.historical_removals['historic_forestry_surrender']
             .reindex(self.years, fill_value=0.0)
         )
 

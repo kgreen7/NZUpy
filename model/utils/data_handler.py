@@ -54,7 +54,7 @@ class DataHandler:
         self.model_parameters_data = None
 
         # forestry data attributes
-        self.historic_removals_data = None
+        self.historical_removals_data = None
         self.yield_tables_data = None
         self.yield_increments = None # dict of {forest_type: np.array}
         self.afforestation_projections_data = None
@@ -143,7 +143,7 @@ class DataHandler:
         """Load forestry datasets. Failures are non-fatal — files are only
         required when forestry_mode='endogenous'."""
         for loader in [
-            self._load_historic_removals,
+            self._load_historical_removals,
             self._load_yield_tables,
             self._load_afforestation_projections,
             self._load_manley_parameters,
@@ -153,10 +153,10 @@ class DataHandler:
             except Exception as e:
                 print(f"Warning: {loader.__name__} failed: {e}")
 
-    def _load_historic_removals(self):
-        file_path = self.supply_dir / "historic_removals.csv"
+    def _load_historical_removals(self):
+        file_path = self.supply_dir / "historical_removals.csv"
         if file_path.exists():
-            self.historic_removals_data = self._load_csv(file_path)
+            self.historical_removals_data = self._load_csv(file_path)
 
     def _load_yield_tables(self):
         file_path = self.forestry_dir / "yield_tables.csv"
@@ -184,23 +184,23 @@ class DataHandler:
     # Endogenous forestry getter methods
     # ------------------------------------------------------------------
 
-    def get_historic_removals(self, config: Optional[str] = None,
+    def get_historical_removals(self, config: Optional[str] = None,
                               scenario_name: Optional[str] = None) -> pd.DataFrame:
         """
-        Get historic (old-forest) forestry data from historic_removals.csv.
+        Get historic (old-forest) forestry data from historical_removals.csv.
 
         Returns DataFrame indexed by year with columns:
         historic_forestry_tradeable, historic_forestry_held, historic_forestry_surrender.
         """
-        if self.historic_removals_data is None:
+        if self.historical_removals_data is None:
             raise ValueError(
                 "Historic removals data not loaded. "
-                "Ensure historic_removals.csv exists in the supply directory."
+                "Ensure historical_removals.csv exists in the supply directory."
             )
 
         config_lower = config.lower() if config else 'central'
-        data = self.historic_removals_data[
-            self.historic_removals_data['Config'].str.lower() == config_lower
+        data = self.historical_removals_data[
+            self.historical_removals_data['Config'].str.lower() == config_lower
         ]
         if data.empty:
             raise KeyError(f"No historic removals data found for config '{config}'")
@@ -217,7 +217,7 @@ class DataHandler:
         df.index.name = 'year'
         df = df.fillna(0.0)
 
-        # historic_removals.csv stores values in individual NZUs (t CO2-e).
+        # historical_removals.csv stores values in individual NZUs (t CO2-e).
         # The model works in kt CO2-e — divide by 1000. TODO: ensure consistent CSV units
         df = df / 1000.0
         return df
@@ -504,18 +504,21 @@ class DataHandler:
         
         return ia_data
     
-    def get_stockpile_parameters(self, config: Optional[str] = None, overrides: Optional[Dict[str, Any]] = None, scenario_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_stockpile_parameters(self, config: Optional[str] = None, overrides: Optional[Dict[str, Any]] = None, scenario_name: Optional[str] = None, model_start_year: Optional[int] = None) -> Dict[str, Any]:
         """
         Get stockpile parameters from stockpile balance data and model parameters.
-        
+
         Args:
             config: Configuration name (defaults to "central")
             overrides: Optional dictionary of parameter overrides
             scenario_name: If provided, get scenario-specific stockpile parameters
-                
+            model_start_year: The model's actual start year (from define_time). If provided,
+                this is used for stockpile_usage_start_year and stockpile_reference_year
+                instead of the value in model_parameters.csv.
+
         Returns:
             Dictionary of stockpile parameters
-                
+
         Raises:
             ValueError: If required parameters are missing or cannot be loaded
         """
@@ -554,8 +557,8 @@ class DataHandler:
                 else:
                     raise ValueError("No stockpile balance data found for any configuration")
             
-            # Get the year before start year from model parameters
-            start_year = int(params['start_year'])
+            # Use model_start_year if provided (from define_time), otherwise fall back to CSV value
+            start_year = model_start_year if model_start_year is not None else int(params['start_year'])
             target_year = start_year - 1
             
             # Get data for target year
@@ -579,34 +582,33 @@ class DataHandler:
         except (ValueError, KeyError, IndexError) as e:
             raise ValueError(f"Failed to load stockpile balance data: {e}")
         
-        # Map CSV names to return names
+        # Map CSV names to return names (start_year excluded — driven by model_start_year)
         param_mapping = {
             'liquidity_factor': 'liquidity_factor',
             'payback_years': 'payback_period',
             'discount_rate': 'discount_rate',
-            'start_year': 'stockpile_usage_start_year'
         }
-        
+
         # Check required parameters exist
         missing = [p for p in param_mapping.keys() if p not in params]
         if missing:
             raise ValueError(f"Missing required parameters in model_parameters.csv: {missing}")
-        
+
         # Create return dictionary with mapped names
         result = {}
         for csv_name, return_name in param_mapping.items():
             value = params[csv_name]
-            # Convert to appropriate type
-            if csv_name in ['payback_years', 'start_year']:
-                result[return_name] = int(value)
-            else:
-                result[return_name] = float(value)
-        
+            result[return_name] = int(value) if csv_name == 'payback_years' else float(value)
+
+        # stockpile_usage_start_year comes from define_time() (via model_start_year),
+        # not from model_parameters.csv, so it respects the user-defined time window.
+        result['stockpile_usage_start_year'] = start_year
+
         # Add stockpile values
         result['initial_stockpile'] = initial_stockpile
         result['initial_surplus'] = initial_surplus
-        
-        # Add reference year
+
+        # Add reference year (year before the model start year)
         result['stockpile_reference_year'] = target_year
         
         # Apply overrides if provided
@@ -632,7 +634,7 @@ class DataHandler:
                 elif param == 'payback_period' and value <= 0:
                     raise ValueError(f"payback_period must be positive, got {value}")
                 elif param == 'stockpile_usage_start_year' and value < start_year:
-                    raise ValueError(f"stockpile_usage_start_year cannot be before model start year {start_year}")
+                    raise ValueError(f"stockpile_usage_start_year ({value}) cannot be before model start year ({start_year})")
                 
                 # Convert to appropriate type and update result
                 if param in ['payback_period', 'stockpile_usage_start_year', 'stockpile_reference_year']:
