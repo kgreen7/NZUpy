@@ -186,6 +186,14 @@ class NZUpy:
         for year, value in self.config.price_control_values.items():
             if year in self.price_control_parameter.index:
                 self.price_control_parameter[year] = value
+
+        # Apply per-scenario price_control_override (set via fill('price_control', pd.Series(...)))
+        if hasattr(self, '_active_scenario_index') and self._active_scenario_index is not None:
+            override = self.component_configs[self._active_scenario_index].price_control_override
+            if override is not None:
+                for year, value in override.items():
+                    if year in self.price_control_parameter.index:
+                        self.price_control_parameter[year] = value
     
     def define_scenarios(self, scenario_names: List[str]) -> 'NZUpy':
         """
@@ -385,7 +393,7 @@ class NZUpy:
             )
 
         valid_components = ['auction', 'forestry', 'industrial', 'emissions',
-                            'demand_model', 'stockpile']
+                            'demand_model', 'stockpile', 'price']
         if component not in valid_components:
             raise ValueError(
                 f"Unknown component: '{component}'. "
@@ -414,6 +422,8 @@ class NZUpy:
             cfg = self.component_configs[i]
             if component == 'demand_model':
                 cfg.demand_sensitivity = config
+            elif component == 'price':
+                cfg.price_control_config = config
             else:
                 setattr(cfg, component, config)
 
@@ -557,6 +567,10 @@ class NZUpy:
                         f"Unknown pricing variable: '{variable_name}'. "
                         f"Valid options: pricing_mode, price_path, price_change_rate"
                     )
+            elif component == 'price' and variable_name == 'price_control':
+                if not isinstance(value, pd.Series):
+                    raise ValueError("price_control must be a pd.Series mapping years to control values")
+                self.component_configs[i].price_control_override = value
             elif isinstance(value, pd.Series):
                 self._store_series(variable_name, value, component=component, scenario_index=i)
             else:
@@ -1001,68 +1015,6 @@ class NZUpy:
         """
         return self.model_runner.get_scenario_result(scenario_name_or_index)
 
-    def run_optimisation(self) -> Dict[str, Any]:
-        """
-        Run the optimisation process to find the optimal price change rate.
-        
-        Returns:
-            Dict containing optimisation and model results.
-        """
-        return self.model_runner.run_optimisation()
-
-    def run_model(self, price_change_rate: Optional[float] = None, *, is_final_run: bool = False) -> Dict[str, Any]:
-        """
-        Run the model with a given price change rate.
-        
-        Args:
-            price_change_rate: The price change rate to use.
-                If None, the current price_change_rate will be used.
-            is_final_run: Whether this is the final run after optimisation.
-                If True, forestry variables will be included.
-        
-        Returns:
-            Dict containing model results.
-        """
-        return self.model_runner.run_model(price_change_rate, is_final_run=is_final_run)
-    
-    def set_price_control(self, year_values: Dict[int, float]):
-        """
-        Set price control parameters for specific years.
-        
-        Args:
-            year_values: Dictionary mapping years to price control values.
-                Positive values (e.g., 1.0) apply the normal price change.
-                Negative values (e.g., -1.0) invert the price change direction.
-                Zero disables price change for that year.
-        """
-        for year, value in year_values.items():
-            if year in self.price_control_parameter.index:
-                self.price_control_parameter[year] = value
-        
-        # Recalculate prices if a price change rate has been set
-        if hasattr(self, 'price_change_rate') and self.price_change_rate != 0:
-            self.calculation_engine._calculate_prices()
-
-    def set_price_control_range(self, value: float, start_year: int = None, end_year: int = None):
-        """
-        Set the same price control value for a range of years.
-        
-        Args:
-            value: Price control value to set.
-            start_year: First year to apply the control (defaults to first year after historical prices).
-            end_year: Last year to apply the control (defaults to last model year).
-        """
-        if start_year is None:
-            start_year = self.last_historical_year + 1
-        
-        if end_year is None:
-            end_year = max(self.years)
-        
-        year_values = {year: value for year in range(start_year, end_year + 1) 
-                    if year in self.price_control_parameter.index}
-        
-        self.set_price_control(year_values)
-    
     @property
     def active_price_control_config(self):
         """Get the active price control configuration for the current run."""
@@ -1151,28 +1103,3 @@ class NZUpy:
 
         return self
 
-    def use_price_control_config(self, config_name: str, scenario_index: int = None, scenario_name: str = None):
-        """
-        Load a specific price control configuration.
-        
-        Args:
-            config_name: The configuration name to load (e.g., 'central', 'scarcity_then_surplus')
-            scenario_index: Index of the scenario to apply this to (optional)
-            scenario_name: Name of the scenario to apply this to (optional)
-        
-        Returns:
-            Self for method chaining
-        """
-        # Determine which scenario to use
-        if scenario_index is not None:
-            if scenario_index < 0 or scenario_index >= len(self.scenarios):
-                raise ValueError(f"Invalid scenario_index: {scenario_index}")
-            scenario = self.scenarios[scenario_index]
-        elif scenario_name is not None:
-            if scenario_name not in self.scenarios:
-                raise ValueError(f"Unknown scenario_name: {scenario_name}")
-
-        # Store configuration name in scenario manager
-        self.scenario_manager.set_price_control_config(scenario, config_name)
-        
-        return self
