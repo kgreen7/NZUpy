@@ -173,8 +173,9 @@ class ModelRunner:
             component_config = self.model.component_configs[self.model._active_scenario_index]
             self.model.scenario_manager._initialise_scenario_components(component_config, scenario_name)
         
-        # CRITICAL FIX: Explicitly calculate prices WITH price controls
-        self.model.calculation_engine._calculate_initial_prices()
+        # Calculate initial prices — skipped for fixed_path (prices already injected)
+        if not self._is_fixed_path_active():
+            self.model.calculation_engine._calculate_initial_prices()
         
         # Set up the model run
         run_data = self._initialise_model_run()
@@ -241,11 +242,11 @@ class ModelRunner:
             # Update stockpile usage for next iteration
             run_data['stockpile_usage'] = new_stockpile_usage
         
-        # IMPORTANT: After last iteration, recalculate prices once more
-        # to ensure price controls are properly applied
+        # After last iteration, recalculate prices to apply price controls —
+        # skipped for fixed_path (user-supplied prices must not be overwritten)
         if run_data['iteration'] >= run_data['max_iterations'] or run_data['converged']:
-            # Force recalculation of prices with controls
-            self.model.calculation_engine._calculate_initial_prices()
+            if not self._is_fixed_path_active():
+                self.model.calculation_engine._calculate_initial_prices()
     
     def _perform_single_iteration(self, scenario_name: Optional[str] = None) -> Tuple[Dict[str, pd.Series], pd.Series, pd.Series]:
         """
@@ -257,30 +258,46 @@ class ModelRunner:
         Returns:
             Tuple of (stockpile_results, previous_prices, new_stockpile_usage)
         """
-        # Calculate initial prices based on the price change rate
-        self.model.calculation_engine._calculate_initial_prices()
-        
+        # Calculate initial prices — skipped for fixed_path (prices already injected)
+        if not self._is_fixed_path_active():
+            self.model.calculation_engine._calculate_initial_prices()
+
         # Calculate demand based on current prices
         self.model.calculation_engine._calculate_demand()
-        
+
         # Calculate base supply (without stockpile) using scenario-specific data
         self.model.calculation_engine._calculate_base_supply(scenario_name)
-        
+
         # Calculate supply-demand balance
         stockpile_results = self._calculate_stockpile_contribution()
-        
+
+        # Store on model so _calculate_supply can access it (needed when the
+        # optimiser has not previously run, e.g. fixed_rate / fixed_path modes)
+        if isinstance(stockpile_results, dict):
+            stockpile_results = pd.DataFrame(stockpile_results)
+        self.model.stockpile_results = stockpile_results
+
         # Get new stockpile usage and previous prices for convergence check
         new_stockpile_usage = stockpile_results['available_units'].copy()
         prev_prices = self.model.prices.copy()
-        
-        # Revise prices based on stockpile usage
-        self.model.calculation_engine._revise_prices_based_on_stockpile(stockpile_results)
+
+        # Revise prices based on stockpile usage — skipped for fixed_path
+        # (user-supplied prices must not be modified by internal logic)
+        if not self._is_fixed_path_active():
+            self.model.calculation_engine._revise_prices_based_on_stockpile(stockpile_results)
         
         # Calculate final supply (including stockpile) using scenario-specific data
         self.model.calculation_engine._calculate_supply(scenario_name)
         
         return stockpile_results, prev_prices, new_stockpile_usage
     
+    def _is_fixed_path_active(self) -> bool:
+        """Return True if the active scenario is in fixed_path pricing mode."""
+        idx = getattr(self.model, '_active_scenario_index', None)
+        if idx is None:
+            return False
+        return getattr(self.model.component_configs[idx], 'pricing_mode', 'optimised') == 'fixed_path'
+
     def _calculate_stockpile_contribution(self) -> Dict[str, pd.Series]:
         """
         Calculate the stockpile contribution based on supply-demand balance.
@@ -433,17 +450,25 @@ class ModelRunner:
         # Store active scenario index and name for parameter lookups
         self.model._active_scenario_index = scenario_index
         self.model._active_scenario_name = scenario_name
-        
+
         # Initialize price control for this scenario
         self.model._initialise_price_control()
-        
-        # Run optimisation for this scenario
-        result = self._run_scenario_optimisation(scenario_name)
-        
+
+        # Branch on pricing mode
+        component_config = self.model.component_configs[scenario_index]
+        pricing_mode = getattr(component_config, 'pricing_mode', 'optimised')
+
+        if pricing_mode == 'fixed_path':
+            result = self._run_fixed_path(scenario_name, scenario_index)
+        elif pricing_mode == 'fixed_rate':
+            result = self._run_fixed_rate(scenario_name, scenario_index)
+        else:
+            result = self._run_scenario_optimisation(scenario_name)
+
         # Clear active scenario info
         self.model._active_scenario_index = None
         self.model._active_scenario_name = None
-        
+
         return result
 
     def _run_scenario_optimisation(self, scenario_name: str) -> Dict[str, Any]:
@@ -470,6 +495,76 @@ class ModelRunner:
         # Compile and return results
         return self._compile_optimisation_results(optimisation_results, gap, model_results)
     
+    def _run_fixed_path(self, scenario_name: str, scenario_index: int) -> Dict[str, Any]:
+        """
+        Run a scenario with a user-supplied price series (no optimisation).
+
+        Prices are injected directly from component_config.price_path.
+        """
+        component_config = self.model.component_configs[scenario_index]
+        price_path = getattr(component_config, 'price_path', None)
+        if price_path is None:
+            raise ValueError(
+                f"pricing_mode='fixed_path' requires a price series. "
+                f"Call fill('price_path', series, scenario='{scenario_name}') first."
+            )
+
+        # Inject the user-supplied prices into the model's price series
+        for year in self.model.calculation_years:
+            if year in price_path.index:
+                self.model.prices[year] = price_path[year]
+            elif self.model.years and year > max(self.model.years):
+                # Extend beyond model end using last supplied price
+                last_year = max(y for y in price_path.index if y <= max(self.model.years))
+                self.model.prices[year] = price_path[last_year]
+
+        # Run forward calculation with rate=0 (prices already set, guard skips recalculation)
+        self.model.price_change_rate = 0.0
+        model_results = self.run_model(0.0, scenario_name=scenario_name, is_final_run=True)
+
+        return {
+            'price_change_rate': None,
+            'total_gap': None,
+            'prices': model_results['prices'],
+            'unmodified_prices': model_results.get('unmodified_prices', model_results['prices']),
+            'supply': model_results['supply'],
+            'demand': model_results['demand'],
+            'final_price': model_results['prices'][self.model.config.end_year],
+            'convergence_success': True,
+            'optimisation_message': 'fixed_path — no optimisation',
+            'model': model_results,
+        }
+
+    def _run_fixed_rate(self, scenario_name: str, scenario_index: int) -> Dict[str, Any]:
+        """
+        Run a scenario with a user-supplied price change rate (no optimisation).
+
+        The rate is read from component_config.price_change_rate.
+        """
+        component_config = self.model.component_configs[scenario_index]
+        rate = getattr(component_config, 'price_change_rate', None)
+        if rate is None:
+            raise ValueError(
+                f"pricing_mode='fixed_rate' requires a price change rate. "
+                f"Call fill('price_change_rate', value, scenario='{scenario_name}') first."
+            )
+
+        self.model.price_change_rate = rate
+        model_results = self.run_model(rate, scenario_name=scenario_name, is_final_run=True)
+
+        return {
+            'price_change_rate': rate,
+            'total_gap': None,
+            'prices': model_results['prices'],
+            'unmodified_prices': model_results.get('unmodified_prices', model_results['prices']),
+            'supply': model_results['supply'],
+            'demand': model_results['demand'],
+            'final_price': model_results['prices'][self.model.config.end_year],
+            'convergence_success': True,
+            'optimisation_message': 'fixed_rate — no optimisation',
+            'model': model_results,
+        }
+
     def _setup_optimiser(self) -> FastSolveOptimiser:
         """
         Set up the optimiser with appropriate configuration.

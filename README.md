@@ -196,6 +196,7 @@ The suite has three tiers:
 | 1 — Component isolation | `test_data_handler.py`, `test_auction.py`, `test_industrial.py`, `test_emissions.py`, `test_price_response.py`, `test_stockpile.py`, `test_forestry.py`, `test_calculation_engine.py` | Each supply/demand component in isolation with synthetic data | ~25 s |
 | 2 — Integration | `test_integration.py` | Full model runs; structural invariants and regression values | ~5 min |
 | 3 — API contracts | `test_api_contracts.py` | User-facing workflow: error handling, method chaining, multi-scenario | ~1 min |
+| 3 — Pricing modes | `test_pricing_modes.py` | `set_mode()`, `fixed_path`, and `fixed_rate` pricing modes; optimised mode unchanged | ~3 min |
 
 ### Test fixtures
 
