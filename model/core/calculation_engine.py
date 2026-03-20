@@ -368,14 +368,10 @@ class CalculationEngine:
             return control_value
         
         # Try getting from currently active config (middle priority)
-        # This automatically uses the correct scenario's config based on how the runner works
-        if hasattr(self.model, 'data_handler') and hasattr(self.model.data_handler, 'historical_manager'):
-            # Getting the active price control config name for the current scenario
-            # This is already handled by the model runner when it sets up the scenario
+        if hasattr(self.model, 'data_handler'):
             active_config = self.model.active_price_control_config
             if active_config:
-                control_value = self.model.data_handler.historical_manager.get_price_control(
-                    year, config=active_config)
+                control_value = self.model.data_handler.get_price_control(year, config=active_config)
                 if control_value is not None:
                     return control_value
         

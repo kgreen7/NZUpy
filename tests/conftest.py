@@ -72,7 +72,7 @@ def test_data_dir(tmp_path, fixture_dir):
             shutil.copy2(src, dst)
 
     # Copy price.csv to historical directory as carbon_price.csv
-    # (HistoricalDataManager discovers files in historical/ by variable name)
+    # (DataHandler discovers files in historical/ by variable name)
     price_src = fixture_dir / "price.csv"
     if price_src.exists():
         price_df = pd.read_csv(price_src)

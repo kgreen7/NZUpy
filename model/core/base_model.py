@@ -140,9 +140,6 @@ class NZUpy:
     
     def _initialise_historical_prices(self):
         """Initialise historical prices based on available data."""
-        if not hasattr(self.data_handler, 'historical_manager'):
-            raise RuntimeError("Data handler does not have historical manager")
-            
         # Get historical carbon price data
         historical_prices = self.data_handler.get_historical_data('carbon_price')
         if historical_prices is None or historical_prices.empty:
@@ -157,29 +154,16 @@ class NZUpy:
     
     def _initialise_price_control(self):
         """Initialise price control parameter from data."""
-        # Create empty price control series
         self.price_control_parameter = pd.Series(index=self.years)
-        
-        # Get configuration name using active_price_control_config property
         config_name = self.active_price_control_config
-        # Load values directly from CSV
+
+        # Use already-loaded data from DataHandler (avoids re-reading CSV)
         try:
-            price_control_csv = self.data_handler.parameters_dir / "price_control.csv"
-            df = pd.read_csv(price_control_csv)
-            
-            # Filter for current config and convert to series
-            config_values = df[df['Config'] == config_name].set_index('Year')['Value']
-            
-            # Apply values to our years
             for year in self.years:
-                if year in config_values.index:
-                    self.price_control_parameter[year] = config_values[year]
-                else:
-                    # Default to 1.0 if year not found
-                    self.price_control_parameter[year] = 1.0
+                value = self.data_handler.get_price_control(year, config=config_name)
+                self.price_control_parameter[year] = value if value is not None else 1.0
         except Exception as e:
             print(f"Warning: Error loading price control values: {e}")
-            # Default all years to 1.0
             self.price_control_parameter.fillna(1.0, inplace=True)
         
         # Apply any year-specific price control values from config

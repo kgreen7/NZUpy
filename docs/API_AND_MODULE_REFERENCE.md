@@ -173,19 +173,17 @@ The `_VARIABLE_COMPONENT_MAP` dict in `base_model.py` routes `fill()` calls.  Ke
 
 ### 4.4  `model/utils/` — data loading and output formatting
 
-**`data_handler.py`** — `DataHandler`.  Loads all CSV input files on init.  Provides getter methods filtered by config name: `get_auction_data(config)`, `get_forestry_data(config)`, `get_emissions_data(config)`, `get_stockpile_parameters(config)`, `get_demand_model(config, model_number)`, etc.  Also loads endogenous forestry data: `get_historical_removals()`, `get_yield_increments()`, `get_afforestation_projections()`, `get_manley_parameters()`.  Stores scenario-specific overrides in `scenario_data[scenario_name][component]` dict.
+**`data_handler.py`** — `DataHandler`.  Loads all CSV input files on init, including historical carbon price, CPI data, and price control configs (formerly in `HistoricalDataManager`).  Provides getter methods filtered by config name: `get_auction_data(config)`, `get_forestry_data(config)`, `get_emissions_data(config)`, `get_stockpile_parameters(config)`, `get_demand_model(config, model_number)`, etc.  Historical data methods: `get_historical_data(variable)`, `get_price_control(year, config)`, `get_combined_series()`, `convert_to_nominal()`.  Stores scenario-specific overrides in `scenario_data[scenario_name][component]` dict.
 
 **`output_format.py`** — `OutputFormat`.  Takes raw results dicts from `ModelRunner` and organises into the MultiIndex DataFrames users access via `nzu.prices`, `nzu.supply`, etc.  Provides `list_variables()` and `variable_info()`.  Contains the `_variable_schema` metadata dict describing every output variable.
 
-**`historical_data_manager.py`** — `HistoricalDataManager`.  Loads historical carbon price, CPI data, and price control configs from CSVs in `data/inputs/`.  Provides lookups used by `CalculationEngine` for historical price anchoring and price control values.
+**`price_convert.py`** — Real ↔ nominal price conversion using CPI index.  Used by `DataHandler` and `OutputFormat` to produce nominal price columns.
 
-**`price_convert.py`** — Real ↔ nominal price conversion using CPI index.  Used by `OutputFormat` to produce nominal price columns.
+### 4.5  `model/interface/` — chart rendering and generation
+
+**`chart_generator.py`** — `ChartGenerator` class.  User-facing charting interface.  Auto-detects single vs Range scenario mode and delegates to the appropriate chart functions.  Also provides `generate_standard_charts()` and `export_csv_data()`.
 
 **`chart_config.py`** — `NZUPY_CHART_STYLE` dict and helper functions (`get_band_colors`, etc.) providing consistent chart colours, fonts, and layout constants for all charts.
-
-**`chart_generator.py`** — `ChartGenerator` class.  User-facing charting interface.  Auto-detects single vs Range scenario mode and delegates to the appropriate chart functions in `interface/`.  Also provides `generate_standard_charts()` and `export_csv_data()`.
-
-### 4.5  `model/interface/` — chart rendering
 
 **`single_charts.py`** — Individual Plotly chart functions for single-scenario mode: `carbon_price_chart()`, `emissions_pathway_chart()`, `supply_components_chart()`, `stockpile_balance_chart()`, `supply_demand_balance_chart()`, `auction_volume_revenue_chart()`.
 

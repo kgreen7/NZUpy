@@ -234,7 +234,7 @@ def create_comparison_page(models: Dict[str, Any],
     Returns:
         HTML content as a string
     """
-    from model.utils.chart_generator import ChartGenerator
+    from model.interface.chart_generator import ChartGenerator
     
     # Valid chart types
     valid_chart_types = [

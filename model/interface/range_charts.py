@@ -14,7 +14,7 @@ import numpy as np
 import plotly.graph_objects as go
 from typing import Dict, Optional, List, Union, Tuple, Any
 
-from model.utils.chart_config import (
+from model.interface.chart_config import (
     NZUPY_CHART_STYLE, 
     apply_nzupy_style, 
     create_uncertainty_color,
