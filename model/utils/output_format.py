@@ -8,16 +8,29 @@ structured pandas DataFrames with standardised multi-index columns.
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Union, Any
-from pathlib import Path
 
 
 class OutputFormat:
     """
     Formats raw model results into structured DataFrames.
-    
+
     This class takes the raw model results (nested dictionaries) and converts
     them into standardised pandas DataFrames with multi-index columns for
     scenarios and variables.
+
+    Result dict structure (from runner.py):
+        result['price_change_rate']       — optimal or fixed rate
+        result['prices']                  — pd.Series of controlled carbon prices
+        result['unmodified_prices']       — pd.Series of pre-control prices
+        result['supply']                  — pd.DataFrame of supply components
+        result['demand']                  — pd.Series of emissions demand
+        result['model']                   — detailed component results:
+            ['industrial_results']        — pd.DataFrame with adjusted_allocation
+            ['stockpile_results']         — pd.DataFrame with balance columns
+            ['stockpile_reference_year']  — int, year before model start
+            ['stockpile_initial_values']  — dict with balance/surplus_balance keys
+            ['forestry_results']          — dict with total_supply and Manley columns
+            ['emissions_results']         — pd.DataFrame with baseline_emissions, total_demand
     """
     
     def __init__(self, model):
@@ -45,9 +58,7 @@ class OutputFormat:
         
         # Create DataFrames for each category
         self.model.prices = self._create_prices_dataframe()
-        
-        self.model.core = self._create_core_dataframe()
-        
+
         self.model.supply = self._create_supply_dataframe()
         
         self.model.demand = self._create_demand_dataframe()
@@ -59,63 +70,40 @@ class OutputFormat:
         self.model.forestry = self._create_forestry_dataframe()
         
         self.model.stockpile = self._create_stockpile_dataframe()
-        
-        self.model.inputs = self._create_inputs_dataframe()
     
     def _create_prices_dataframe(self):
         """Create DataFrame for prices with scenarios as columns."""
         data = {}
         
-        # Import the CPI processor here to avoid circular imports
-        from model.utils.price_convert import convert_real_to_nominal, load_cpi_data
-        
-        # Load CPI data once for efficiency
-        cpi_path = self.data_handler.economic_dir / "CPI.csv"
-        try:
-            cpi_data = load_cpi_data(cpi_path)
-        except Exception as e:
-            print(f"Warning: Could not load CPI data from {cpi_path}: {e}")
-            cpi_data = load_cpi_data(Path("data/inputs/economic/CPI.csv"))
+        from model.utils.price_convert import convert_real_to_nominal
+
+        cpi_data = self.data_handler.cpi_data
         
         for scenario in self.scenarios:
             if scenario in self.results:
                 result = self.results[scenario]
                 
-                # Extract real prices from results structure
-                real_prices = None
-                if 'prices' in result:
+                # Extract real prices (2023 NZD)
+                try:
                     real_prices = result['prices']
-                elif 'model' in result and 'prices' in result['model']:
-                    real_prices = result['model']['prices']
-                else:
-                    raise ValueError(f"Carbon prices not found for scenario '{scenario}'. Results structure: {list(result.keys())}")
-                # Store real prices (2023 NZD)
+                except KeyError:
+                    raise ValueError(
+                        f"Carbon prices not found for scenario '{scenario}'. "
+                        f"Results structure: {list(result.keys())}"
+                    )
                 data[(scenario, 'carbon_price')] = real_prices
-                
-                # Calculate and store nominal prices
+
+                # Calculate nominal prices
                 nominal_prices = pd.Series(
-                    convert_real_to_nominal(real_prices, cpi_data=cpi_data), 
+                    convert_real_to_nominal(real_prices, cpi_data=cpi_data),
                     index=real_prices.index
                 )
                 data[(scenario, 'carbon_price_nominal')] = nominal_prices
-                
+
                 # Extract unmodified prices if available
                 if 'unmodified_prices' in result:
                     unmodified_real = result['unmodified_prices']
                     data[(scenario, 'unmodified_carbon_price')] = unmodified_real
-                    
-                    # Calculate nominal unmodified prices
-                    unmodified_nominal = pd.Series(
-                        convert_real_to_nominal(unmodified_real, cpi_data=cpi_data),
-                        index=unmodified_real.index
-                    )
-                    data[(scenario, 'unmodified_carbon_price_nominal')] = unmodified_nominal
-                
-                elif 'model' in result and 'unmodified_prices' in result['model']:
-                    unmodified_real = result['model']['unmodified_prices']
-                    data[(scenario, 'unmodified_carbon_price')] = unmodified_real
-                    
-                    # Calculate nominal unmodified prices
                     unmodified_nominal = pd.Series(
                         convert_real_to_nominal(unmodified_real, cpi_data=cpi_data),
                         index=unmodified_real.index
@@ -152,103 +140,6 @@ class OutputFormat:
         
         return df
 
-    def _create_core_dataframe(self):
-        """Create DataFrame for core model outputs."""
-        data = {}
-        for scenario in self.scenarios:
-            if scenario in self.results:
-                result = self.results[scenario]
-                
-                # Extract supply-demand balance
-                supply_demand_balance = None
-                if 'supply' in result and 'demand' in result:
-                    # For top-level supply and demand
-                    if isinstance(result['supply'], pd.DataFrame) and 'total' in result['supply'].columns:
-                        total_supply = result['supply']['total']
-                    else:
-                        total_supply = pd.Series(result['supply'], index=self.years)
-                        
-                    if isinstance(result['demand'], pd.Series):
-                        demand = result['demand']
-                    else:
-                        demand = pd.Series(result['demand'], index=self.years)
-                        
-                    supply_demand_balance = total_supply - demand
-                    
-                elif 'model' in result:
-                    # For nested supply and demand
-                    model_result = result['model']
-                    if 'supply_demand_balance' in model_result:
-                        supply_demand_balance = model_result['supply_demand_balance']
-                    elif 'supply' in model_result and 'demand' in model_result:
-                        if isinstance(model_result['supply'], pd.DataFrame) and 'total' in model_result['supply'].columns:
-                            total_supply = model_result['supply']['total']
-                        else:
-                            total_supply = pd.Series(model_result['supply'], index=self.years)
-                            
-                        if isinstance(model_result['demand'], pd.Series):
-                            demand = model_result['demand']
-                        else:
-                            demand = pd.Series(model_result['demand'], index=self.years)
-                            
-                        supply_demand_balance = total_supply - demand
-                
-                if supply_demand_balance is not None:
-                    data[(scenario, 'supply_demand_balance')] = supply_demand_balance
-                
-                # Extract price change rate
-                price_change_rate = None
-                if 'price_change_rate' in result:
-                    # For single value, create a Series with same value for all years
-                    if isinstance(result['price_change_rate'], (int, float)):
-                        price_change_rate = pd.Series(result['price_change_rate'], index=self.years)
-                    else:
-                        price_change_rate = result['price_change_rate']
-                elif 'model' in result and 'price_change_rate' in result['model']:
-                    if isinstance(result['model']['price_change_rate'], (int, float)):
-                        price_change_rate = pd.Series(result['model']['price_change_rate'], index=self.years)
-                    else:
-                        price_change_rate = result['model']['price_change_rate']
-                
-                if price_change_rate is not None:
-                    data[(scenario, 'price_change_rate')] = price_change_rate
-                    
-                    # Also add avg_price_change_rate
-                    # This is a single value, so create a Series with same value for all years
-                    data[(scenario, 'avg_price_change_rate')] = pd.Series(
-                        price_change_rate.iloc[0] if isinstance(price_change_rate, pd.Series) else price_change_rate,
-                        index=self.years
-                    )
-        
-        # Create DataFrame with multi-index columns
-        if data:
-            # Convert data to DataFrame
-            df = pd.DataFrame(data)
-            df.index.name = 'year'
-            
-            # Create proper multi-index columns or fix existing ones
-            if not isinstance(df.columns, pd.MultiIndex):
-                columns = pd.MultiIndex.from_tuples(df.columns, 
-                                                names=['scenario', 'variable'])
-                df.columns = columns
-            else:
-                # If already a MultiIndex but names are wrong, fix them
-                if df.columns.names != ['scenario', 'variable']:
-                    df.columns = pd.MultiIndex.from_tuples(
-                        list(df.columns),
-                        names=['scenario', 'variable']
-                    )
-        else:
-            # Create empty DataFrame with proper structure
-            columns = pd.MultiIndex.from_product(
-                [self.scenarios, ['supply_demand_balance', 'price_change_rate', 'avg_price_change_rate']], 
-                names=['scenario', 'variable']
-            )
-            df = pd.DataFrame(columns=columns, index=self.years)
-            df.index.name = 'year'
-        
-        return df
-
     def _create_supply_dataframe(self):
         """Create DataFrame for supply components."""
         data = {}
@@ -257,35 +148,10 @@ class OutputFormat:
                 result = self.results[scenario]
                 
                 # Extract supply components
-                supply_df = None
-                if 'supply' in result and isinstance(result['supply'], pd.DataFrame):
-                    supply_df = result['supply']
-                elif 'model' in result and 'supply' in result['model'] and isinstance(result['model']['supply'], pd.DataFrame):
-                    supply_df = result['model']['supply']
-                        
-                if supply_df is not None:
+                supply_df = result.get('supply')
+                if isinstance(supply_df, pd.DataFrame):
                     for col in supply_df.columns:
                         data[(scenario, col)] = supply_df[col]
-                    
-                    # Check if surplus supply is available from stockpile component
-                    # and add it as an additional supply component
-                    stockpile_results = None
-                    if 'model' in result and 'stockpile_component' in result['model']:
-                        stockpile_comp = result['model']['stockpile_component']
-                        if isinstance(stockpile_comp, dict) and 'results' in stockpile_comp:
-                            stockpile_results = stockpile_comp['results']
-                        elif hasattr(stockpile_comp, 'results'):
-                            stockpile_results = stockpile_comp.results
-                    
-                    if stockpile_results is not None and isinstance(stockpile_results, pd.DataFrame):
-                        # Add surplus used as a separate supply component
-                        if 'surplus_used' in stockpile_results.columns:
-                            data[(scenario, 'surplus')] = stockpile_results['surplus_used']
-                        # Add surplus and non-surplus used components
-                        if 'surplus_used' in stockpile_results.columns:
-                            data[(scenario, 'surplus_used')] = stockpile_results['surplus_used']
-                        if 'non_surplus_used' in stockpile_results.columns:
-                            data[(scenario, 'non_surplus_used')] = stockpile_results['non_surplus_used']
         
         # Create DataFrame with multi-index columns
         if data:
@@ -413,16 +279,7 @@ class OutputFormat:
                 result = self.results[scenario]
                 
                 # Extract industrial allocation
-                industrial_results = None
-                
-                if 'model' in result and 'industrial_component' in result['model']:
-                    model_result = result['model']
-                    if 'industrial_results' in model_result:
-                        industrial_results = model_result['industrial_results']
-                    elif 'industrial_component' in model_result and 'results' in model_result['industrial_component']:
-                        industrial_results = model_result['industrial_component']['results']
-                elif 'model' in result and 'industrial_results' in result['model']:
-                    industrial_results = result['model']['industrial_results']
+                industrial_results = result.get('model', {}).get('industrial_results')
                 
                 if industrial_results is not None:
                     if 'adjusted_allocation' in industrial_results:
@@ -465,16 +322,7 @@ class OutputFormat:
                 result = self.results[scenario]
                 
                 # Extract forestry results
-                forestry_results = None
-                
-                if 'model' in result and 'forestry_component' in result['model']:
-                    model_result = result['model']
-                    if 'forestry_results' in model_result:
-                        forestry_results = model_result['forestry_results']
-                    elif 'forestry_component' in model_result and 'results' in model_result['forestry_component']:
-                        forestry_results = model_result['forestry_component']['results']
-                elif 'model' in result and 'forestry_results' in result['model']:
-                    forestry_results = result['model']['forestry_results']
+                forestry_results = result.get('model', {}).get('forestry_results')
                 
                 if forestry_results is not None:
                     # Primary supply output (always present)
@@ -531,24 +379,7 @@ class OutputFormat:
                 result = self.results[scenario]
                 
                 # Extract stockpile results
-                stockpile_results = None
-                
-                # Handle both top-level and nested structures
-                if 'model' in result and 'stockpile_component' in result['model']:
-                    stockpile_comp = result['model']['stockpile_component']
-                    
-                    # Handle different result structures
-                    if isinstance(stockpile_comp, dict):
-                        if 'results' in stockpile_comp:
-                            stockpile_results = stockpile_comp['results']
-                        if 'stockpile_balance' in stockpile_comp:
-                            data[(scenario, 'balance')] = stockpile_comp['stockpile_balance']
-                        if 'surplus_balance' in stockpile_comp:
-                            data[(scenario, 'surplus_balance')] = stockpile_comp['surplus_balance']
-                    elif hasattr(stockpile_comp, 'results'):
-                        stockpile_results = stockpile_comp.results
-                elif 'model' in result and 'stockpile_results' in result['model']:
-                    stockpile_results = result['model']['stockpile_results']
+                stockpile_results = result.get('model', {}).get('stockpile_results')
                 
                 if stockpile_results is not None:
                     # Extract all available variables from stockpile_results
@@ -599,22 +430,12 @@ class OutputFormat:
                         
                         # Calculate ratio_to_demand if we have demand and stockpile balance
                         if 'stockpile_balance' in stockpile_results.columns:
-                            demand = None
-                            if 'demand' in result:
-                                demand = result['demand']
-                            elif 'model' in result and 'demand' in result['model']:
-                                demand = result['model']['demand']
-                            
+                            demand = result.get('demand')
                             if demand is not None:
-                                # Ensure demand is a Series
-                                if isinstance(demand, pd.Series):
-                                    demand_series = demand
-                                else:
-                                    demand_series = pd.Series(demand, index=self.years)
-                                
-                                # Calculate ratio
+                                if not isinstance(demand, pd.Series):
+                                    demand = pd.Series(demand, index=self.years)
                                 stockpile_balance = stockpile_results['stockpile_balance']
-                                data[(scenario, 'ratio_to_demand')] = stockpile_balance / demand_series
+                                data[(scenario, 'ratio_to_demand')] = stockpile_balance / demand
         
         # Create DataFrame with multi-index columns
         if data:
@@ -681,52 +502,22 @@ class OutputFormat:
             if scenario in self.results:
                 result = self.results[scenario]
                 
-                # Extract emissions data - first try emissions_results, then emissions_component
-                emissions_data = None
-                if 'model' in result:
-                    if 'emissions_results' in result['model']:
-                        emissions_data = result['model']['emissions_results']
-                    elif 'emissions_component' in result['model']:
-                        emissions_data = result['model']['emissions_component']
-                
-                if emissions_data is not None:
-                    # Handle both DataFrame and EmissionsDemand object cases
-                    if isinstance(emissions_data, pd.DataFrame):
-                        # Create proper multi-index columns
-                        if 'baseline_emissions' in emissions_data:
-                            data[(scenario, 'baseline')] = emissions_data['baseline_emissions']
-                        if 'total_demand' in emissions_data:
-                            data[(scenario, 'emissions')] = emissions_data['total_demand']
-                        elif 'price_adjusted_emissions' in emissions_data:
-                            data[(scenario, 'emissions')] = emissions_data['price_adjusted_emissions']
-                    elif hasattr(emissions_data, 'results'):
-                        # If it's an EmissionsDemand object, use its results DataFrame
-                        results_df = emissions_data.results
-                        if 'baseline_emissions' in results_df:
-                            data[(scenario, 'baseline')] = results_df['baseline_emissions']
-                        if 'total_demand' in results_df:
-                            data[(scenario, 'emissions')] = results_df['total_demand']
-                        elif 'price_adjusted_emissions' in results_df:
-                            data[(scenario, 'emissions')] = results_df['price_adjusted_emissions']
-                    
+                # Extract emissions results
+                emissions_data = result.get('model', {}).get('emissions_results')
+
+                if isinstance(emissions_data, pd.DataFrame):
+                    if 'baseline_emissions' in emissions_data:
+                        data[(scenario, 'baseline')] = emissions_data['baseline_emissions']
+                    if 'total_demand' in emissions_data:
+                        data[(scenario, 'emissions')] = emissions_data['total_demand']
+                    elif 'price_adjusted_emissions' in emissions_data:
+                        data[(scenario, 'emissions')] = emissions_data['price_adjusted_emissions']
+
                     # Calculate gross mitigation if we have both baseline and emissions
                     if (scenario, 'baseline') in data and (scenario, 'emissions') in data:
-                        data[(scenario, 'gross_mitigation')] = data[(scenario, 'baseline')] - data[(scenario, 'emissions')]
-                
-                # Add payback units from stockpile component if available
-                if 'model' in result and 'stockpile_component' in result['model']:
-                    stockpile_comp = result['model']['stockpile_component']
-                    
-                    if isinstance(stockpile_comp, dict) and 'results' in stockpile_comp:
-                        stockpile_results = stockpile_comp['results']
-                        
-                        if isinstance(stockpile_results, pd.DataFrame) and 'payback_units' in stockpile_results.columns:
-                            # Include payback units as part of demand
-                            data[(scenario, 'payback_units')] = stockpile_results['payback_units']
-                            
-                            # Also create an expanded demand metric that includes both emissions and paybacks
-                            if (scenario, 'emissions') in data:
-                                data[(scenario, 'total_demand_with_paybacks')] = data[(scenario, 'emissions')] + stockpile_results['payback_units']
+                        data[(scenario, 'gross_mitigation')] = (
+                            data[(scenario, 'baseline')] - data[(scenario, 'emissions')]
+                        )
 
         # Create DataFrame with multi-index columns
         if data:
@@ -752,76 +543,6 @@ class OutputFormat:
             )
             return pd.DataFrame(columns=columns, index=self.years)
 
-    def _create_inputs_dataframe(self):
-        """Create DataFrame for model inputs."""
-        data = {}
-        for scenario in self.scenarios:
-            # Get the component configuration for this scenario
-            scenario_index = self.scenarios.index(scenario)
-            component_config = self.model.component_configs[scenario_index]
-            
-            # Extract key input parameters
-            discount_rate = getattr(component_config, 'discount_rate', None)
-            data[(scenario, 'discount_rate')] = pd.Series(discount_rate, index=self.years)
-            
-            data[(scenario, 'scenario_name')] = pd.Series(scenario, index=self.years)
-            data[(scenario, 'years')] = pd.Series(self.years, index=self.years)
-            
-            initial_stockpile = getattr(component_config, 'initial_stockpile', None)
-            if initial_stockpile is not None:
-                data[(scenario, 'stockpile_start')] = pd.Series(initial_stockpile, index=self.years)
-            
-            initial_surplus = getattr(component_config, 'initial_surplus', None)
-            if initial_surplus is not None:
-                data[(scenario, 'surplus_start')] = pd.Series(initial_surplus, index=self.years)
-            
-            payback_period = getattr(component_config, 'payback_period', None)
-            if payback_period is not None:
-                data[(scenario, 'payback_period')] = pd.Series(payback_period, index=self.years)
-            
-            liquidity = getattr(component_config, 'liquidity', None)
-            if liquidity is not None:
-                data[(scenario, 'liquidity_limit')] = pd.Series(liquidity, index=self.years)
-            
-            # Get price response configuration
-            if hasattr(self.model, 'price_response'):
-                price_response = self.model.price_response
-                
-            # Get demand model number
-            demand_model_number = getattr(component_config, 'demand_model_number', None)
-            if demand_model_number is not None:
-                data[(scenario, 'demand_model')] = pd.Series(demand_model_number, index=self.years)
-        
-        # Create DataFrame with multi-index columns
-        if data:
-            # Convert data to DataFrame
-            df = pd.DataFrame(data)
-            df.index.name = 'year'
-            
-            # Create proper multi-index columns or fix existing ones
-            if not isinstance(df.columns, pd.MultiIndex):
-                columns = pd.MultiIndex.from_tuples(df.columns, 
-                                                names=['scenario', 'variable'])
-                df.columns = columns
-            else:
-                # If already a MultiIndex but names are wrong, fix them
-                if df.columns.names != ['scenario', 'variable']:
-                    df.columns = pd.MultiIndex.from_tuples(
-                        list(df.columns),
-                        names=['scenario', 'variable']
-                    )
-        else:
-            # Create empty DataFrame with proper structure
-            input_vars = ['discount_rate', 'scenario_name', 'years', 'stockpile_start', 
-                        'surplus_start', 'payback_period', 'liquidity_limit', 
-                        'price_response_forward_years', 'demand_model']
-            columns = pd.MultiIndex.from_product([self.scenarios, input_vars], 
-                                            names=['scenario', 'variable'])
-            df = pd.DataFrame(columns=columns, index=self.years)
-            df.index.name = 'year'
-        
-        return df
-    
     def list_variables(self):
         """
         List all available variables by category.
@@ -837,10 +558,6 @@ class OutputFormat:
         print("  Access nominal prices: model.prices.xs('carbon_price_nominal', level='variable', axis=1)")
         print("  Example for specific scenario: model.prices[('central', 'carbon_price')]")
         print("  Example for nominal prices: model.prices[('central', 'carbon_price_nominal')]")
-        
-        print("\nCore model outputs:")
-        for var in sorted(self._get_variables_by_category('core')):
-            print(f"  self.core.xs('{var}', level='variable', axis=1) - {self._get_variable_description(var)}")
         
         print("\nSupply components:")
         for var in sorted(self._get_variables_by_category('supply')):
@@ -866,15 +583,10 @@ class OutputFormat:
         for var in sorted(self._get_variables_by_category('demand')):
             print(f"  self.demand.xs('{var}', level='variable', axis=1) - {self._get_variable_description(var)}")
         
-        print("\nInput parameters:")
-        for var in sorted(self._get_variables_by_category('inputs')):
-            print(f"  self.inputs.xs('{var}', level='variable', axis=1) - {self._get_variable_description(var)}")
-        
-    
+
     def _get_variables_by_category(self, category):
         """Helper method to get variables for a specific category."""
         category_map = {
-            'core': ['supply_demand_balance', 'price_change_rate', 'avg_price_change_rate'],
             'supply': ['auction', 'industrial', 'forestry', 'stockpile', 'total'],
             'auctions': ['base_available', 'base_supplied', 'ccr1_available', 'ccr1_supplied',
                         'ccr2_available', 'ccr2_supplied', 'total_available', 'total_supplied',
@@ -886,11 +598,8 @@ class OutputFormat:
                         'forestry_surrender', 'forestry_contribution',
                         'borrowed_units', 'payback_units', 'net_borrowing', 'cumulative_net_borrowing',
                         'cumulative_forestry_additions'],
-            'demand': ['baseline_emissions', 'emissions', 'gross_mitigation', 'net_mitigation', 
+            'demand': ['baseline_emissions', 'emissions', 'gross_mitigation', 'net_mitigation',
                       'payback_units', 'total_demand_with_paybacks'],
-            'inputs': ['discount_rate', 'scenario_name', 'years', 'stockpile_start', 
-                      'surplus_start', 'payback_period', 'liquidity_limit', 
-                      'price_response_forward_years', 'demand_model']
         }
         
         return category_map.get(category, [])

@@ -49,8 +49,7 @@ class TestPriceGrowth:
         nzu.define_scenarios(['Test'])
         nzu.allocate()
         nzu.fill_defaults()
-        # Set negative price control values directly
-        nzu.set_price_control({year: -1.0 for year in range(2024, 2029)})
+        nzu.fill('price_control', pd.Series({year: -1.0 for year in range(2024, 2029)}))
         nzu.run()
 
         scenario = nzu.scenarios[0]

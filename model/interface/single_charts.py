@@ -8,136 +8,17 @@ the results for a specific scenario.
 """
 
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
-from typing import Dict, Optional, List, Union, Tuple, Any
+from typing import Optional
 
-from model.utils.chart_config import (
-    NZUPY_CHART_STYLE, 
-    apply_nzupy_style, 
+from model.interface.chart_config import (
+    NZUPY_CHART_STYLE,
+    apply_nzupy_style,
     create_uncertainty_color,
     QUALITATIVE_COLORS,
     DIVERGING_COLORS,
     get_band_colors
 )
-
-def _get_scenario_data(model, data_type: str, scenario: Optional[str] = None, variable: Optional[str] = None):
-    """
-    Get data for a specific scenario and variable from model's structured DataFrames.
-    
-    Args:
-        model: NZUpy instance
-        data_type: Type of data to extract ('prices', 'demand', etc.)
-        scenario: Scenario name (defaults to first scenario)
-        variable: Variable name within data type (e.g., 'carbon_price' for prices)
-        
-    Returns:
-        Series with requested data, or None if not found
-    """
-    # Use first scenario if none specified
-    if scenario is None and hasattr(model, 'scenarios') and model.scenarios:
-        scenario = model.scenarios[0]
-    
-    # Map data types to model attributes and variable names - using exact schema names
-    data_type_map = {
-        # Working ones
-        'price': {'attr': 'prices', 'var': 'carbon_price'},
-        'demand': {'attr': 'demand', 'var': 'emissions'},
-        'baseline_emissions': {'attr': 'demand', 'var': 'baseline'},
-        'supply': {'attr': 'supply', 'var': 'total'},
-        
-        # Supply components chart - using exact schema names
-        'auction': {'attr': 'supply', 'var': 'auction'},
-        'industrial': {'attr': 'supply', 'var': 'industrial'},
-        'forestry': {'attr': 'supply', 'var': 'forestry'},
-        'stockpile': {'attr': 'supply', 'var': 'stockpile'},
-        
-        # Stockpile category - using exact schema names
-        'units_used': {'attr': 'stockpile', 'var': 'units_used'},
-        'surplus_used': {'attr': 'stockpile', 'var': 'surplus_used'},
-        'non_surplus_used': {'attr': 'stockpile', 'var': 'non_surplus_used'},
-        'balance': {'attr': 'stockpile', 'var': 'balance'},
-        'surplus_balance': {'attr': 'stockpile', 'var': 'surplus_balance'},
-        'non_surplus_balance': {'attr': 'stockpile', 'var': 'non_surplus_balance'},
-        # Auction category - using exact schema names
-        'base_supplied': {'attr': 'auctions', 'var': 'base_supplied'},
-        'ccr1_supplied': {'attr': 'auctions', 'var': 'ccr1_supplied'},
-        'ccr2_supplied': {'attr': 'auctions', 'var': 'ccr2_supplied'},
-        'auction_revenue': {'attr': 'auctions', 'var': 'revenue'}
-    }
-    
-    # Get attribute and variable names
-    attr_name = data_type_map[data_type]['attr'] if data_type in data_type_map else data_type
-    var_name = variable if variable is not None else data_type_map[data_type]['var'] if data_type in data_type_map else None
-    # Get the DataFrame
-    df = getattr(model, attr_name, None)
-    if df is None:
-        print(f"Warning: Could not find attribute '{attr_name}' in model")
-        return None
-    
-    try:
-        # Handle different DataFrame structures
-        if isinstance(df.columns, pd.MultiIndex):
-            # For multi-index columns (scenario, variable)
-            if var_name is not None:
-                return df.xs((scenario, var_name), level=['scenario', 'variable'], axis=1)
-            else:
-                return df.xs(scenario, level='scenario', axis=1)
-        else:
-            # For single-index columns
-            return df[scenario] if scenario in df.columns else None
-    except Exception as e:
-        print(f"Error accessing data: {str(e)}")
-        return None
-
-def _get_historical_data(model, data_handler, data_type: str, model_start_year: Optional[int] = None):
-    """
-    Get historical data for a specific data type if available.
-    
-    Args:
-        model: NZUpy instance
-        data_handler: Data handler instance, potentially with historical data
-        data_type: Type of data to get historical values for
-        model_start_year: Optional start year of model data, to filter historical data
-        
-    Returns:
-        Series with historical data, or None if not available
-    """
-    
-    # Attempt to get historical data using standard method
-    if hasattr(data_handler, 'get_historical_data'):
-        try:
-            hist_data = data_handler.get_historical_data(data_type)
-            return hist_data
-        except Exception as e:
-            raise Exception(f"Failed to get historical data: {e}")
-    else:
-        raise Exception("data_handler does not have get_historical_data method")
-
-def _filter_by_years(data, start_year: Optional[int] = None, end_year: Optional[int] = None):
-    """
-    Filter time series data by start and end years.
-    
-    Args:
-        data: Series or DataFrame indexed by year
-        start_year: Optional start year (inclusive)
-        end_year: Optional end year (inclusive)
-        
-    Returns:
-        Filtered Series or DataFrame
-    """
-    if data is None:
-        return None
-        
-    mask = pd.Series(True, index=data.index)
-    
-    if start_year is not None:
-        mask &= data.index >= start_year
-        
-    if end_year is not None:
-        mask &= data.index <= end_year
-        
-    return data[mask]
 
 
 def carbon_price_chart(model, scenario: Optional[str] = None, start_year: Optional[int] = None, 

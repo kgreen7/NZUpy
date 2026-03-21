@@ -87,3 +87,6 @@ class ComponentConfig:
     price_path: Optional[object] = None         # pd.Series of prices, used when pricing_mode='fixed_path'
     price_change_rate: Optional[float] = None   # scalar rate, used when pricing_mode='fixed_rate'
 
+    # Per-scenario price control override (set via fill('price_control', pd.Series(...)))
+    price_control_override: Optional[object] = None  # pd.Series mapping year → control value
+

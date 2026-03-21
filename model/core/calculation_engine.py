@@ -363,20 +363,15 @@ class CalculationEngine:
             Price control value (1.0 is neutral)
         """
         # Try getting from direct parameter settings (highest priority)
-        if hasattr(self.model, 'price_control_parameter'):
-            control_value = self.model.price_control_parameter.get(year)
-            if control_value is not None:
-                return control_value
+        control_value = self.model.price_control_parameter.get(year)
+        if control_value is not None:
+            return control_value
         
         # Try getting from currently active config (middle priority)
-        # This automatically uses the correct scenario's config based on how the runner works
-        if hasattr(self.model, 'data_handler') and hasattr(self.model.data_handler, 'historical_manager'):
-            # Getting the active price control config name for the current scenario
-            # This is already handled by the model runner when it sets up the scenario
+        if hasattr(self.model, 'data_handler'):
             active_config = self.model.active_price_control_config
             if active_config:
-                control_value = self.model.data_handler.historical_manager.get_price_control(
-                    year, config=active_config)
+                control_value = self.model.data_handler.get_price_control(year, config=active_config)
                 if control_value is not None:
                     return control_value
         
@@ -512,80 +507,6 @@ class CalculationEngine:
             'end_year': end_year,
             'next_index': end_idx + 1
         }
-    
-    def _calculate_prices(self):
-        """Calculate prices for all years based on historical prices and price change rate."""
-        # Initialise price series
-        self.model.prices = pd.Series(index=self.model.years, dtype=float)
-        
-        # Set historical prices
-        for year in self.model.years:
-            if year in self.model.historical_prices:
-                self.model.prices[year] = self.model.historical_prices[year]
-        
-        # Calculate future prices
-        for year in self.model.years:
-            if year > self.model.last_historical_year:
-                self._calculate_price_for_year(year)
-    
-    def _calculate_price_for_year(self, year: int):
-        """
-        Calculate price for a specific year based on previous year and price controls.
-        
-        Args:
-            year: Year to calculate price for
-        """
-        # Handle first year after historical data differently
-        if year == self.model.last_historical_year + 1:
-            base_price = self.model.last_historical_price
-            control_value = self.model.price_control_parameter[year]
-        else:
-            # Use previous year's price as base
-            prev_year = year - 1
-            base_price = self.model.prices[prev_year]
-            control_value = self.model.price_control_parameter[year]
-        
-        # Apply price control parameter
-        self.model.prices[year] = self._apply_price_control(base_price, control_value)
-        
-        # Apply maximum price cap if configured
-        if hasattr(self.model.config, 'max_price') and self.model.config.max_price is not None:
-            if self.model.prices[year] > self.model.config.max_price:
-                self.model.prices[year] = self.model.config.max_price
-    
-    def _apply_price_control(self, base_price: float, control_value: float) -> float:
-        """
-        Apply price control to base price.
-        
-        Args:
-            base_price: Base price to apply control to
-            control_value: Price control parameter value
-            
-        Returns:
-            New price after applying control
-        """
-        if control_value >= 0:
-            # Positive control: apply standard growth
-            growth_factor = 1 + (self.model.price_change_rate * control_value)
-            return base_price * growth_factor
-        else:
-            # Negative control: invert the change direction
-            reduction_factor = 1 - (self.model.price_change_rate * abs(control_value))
-            return base_price * reduction_factor
-
-    def _calculate_price_growth_rates(self) -> pd.Series:
-        """Calculate year-on-year price growth rates."""
-        growth_rates = pd.Series(index=self.model.years, dtype=float)
-        for i, year in enumerate(self.model.years):
-            if i == 0:  # First year has no previous year
-                growth_rates[year] = 0.0
-            else:
-                prev_year = self.model.years[i-1]
-                if self.model.prices[prev_year] > 0:  # Avoid division by zero
-                    growth_rates[year] = (self.model.prices[year] / self.model.prices[prev_year]) - 1
-                else:
-                    growth_rates[year] = 0.0
-        return growth_rates
     
     def _calculate_base_supply(self, scenario_name=None):
         """

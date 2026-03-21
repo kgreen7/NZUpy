@@ -14,7 +14,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Union, Optional, List, Tuple, Any
 
-from model.utils.historical_data_manager import HistoricalDataManager
+from model.utils.price_convert import load_cpi_data, convert_real_to_nominal
 
 class DataHandler:
     """
@@ -60,8 +60,15 @@ class DataHandler:
         self.afforestation_projections_data = None
         self.manley_parameters_data = None
 
-        # Create historical data manager
-        self.historical_manager = HistoricalDataManager(data_dir)
+        # Historical and configuration data (formerly HistoricalDataManager)
+        self.historical_dir = self.data_dir / "inputs" / "historical"
+        self.price_data = self._load_price_data()
+        self.price_control_data = self._load_price_control_data()
+        self.stockpile_start_data = self._load_stockpile_start_data()
+        self.cpi_data = load_cpi_data(self.economic_dir / "CPI.csv")
+        self.historical_data: dict = {}
+        if self.historical_dir.exists():
+            self._discover_and_load_historical_data()
 
         # Initialize scenario-specific data storage
         self.scenario_data = {}
@@ -958,7 +965,103 @@ class DataHandler:
             print(f"Warning: Error getting configs for {component_type}: {e}")
             return []
 
+    # -------------------------------------------------------------------------
+    # Historical data (absorbed from HistoricalDataManager)
+    # -------------------------------------------------------------------------
+
+    def _load_price_data(self) -> pd.DataFrame:
+        """Load carbon price configurations from parameters/price.csv."""
+        try:
+            df = pd.read_csv(self.parameters_dir / "price.csv")
+            price_data = df.pivot(index='Year', columns='Config', values='Value')
+            price_data.index = price_data.index.astype(int)
+            return price_data
+        except Exception:
+            return pd.DataFrame(columns=['central'])
+
+    def _load_price_control_data(self) -> pd.DataFrame:
+        """Load price control configurations from parameters/price_control.csv."""
+        try:
+            df = pd.read_csv(self.parameters_dir / "price_control.csv")
+            control_data = df.pivot(index='Year', columns='Config', values='Value')
+            control_data.index = control_data.index.astype(int)
+            return control_data
+        except Exception as e:
+            print(f"Warning: Could not load price control data: {e}")
+            return pd.DataFrame(columns=['central'])
+
+    def _load_stockpile_start_data(self) -> pd.DataFrame:
+        """Load stockpile start values from inputs/stockpile/stockpile_balance.csv."""
+        try:
+            file_path = self.data_dir / "inputs" / "stockpile" / "stockpile_balance.csv"
+            if not file_path.exists():
+                print(f"Warning: Stockpile balance data file not found: {file_path}")
+                return pd.DataFrame()
+            df = pd.read_csv(file_path)
+            df = df[df['Variable'].isin(['stockpile', 'surplus'])]
+            df['Year'] = df['Year'].astype(int)
+            return df
+        except Exception as e:
+            print(f"Warning: Could not load stockpile balance data: {e}")
+            return pd.DataFrame()
+
+    def _discover_and_load_historical_data(self) -> None:
+        """Dynamically discover and load CSV files from inputs/historical/."""
+        for file_path in self.historical_dir.glob("*.csv"):
+            variable_name = file_path.stem
+            try:
+                df = pd.read_csv(file_path)
+                if variable_name == 'carbon_price':
+                    if not all(col in df.columns for col in ['Year', 'Value']):
+                        raise ValueError("Carbon price CSV must contain 'Year' and 'Value' columns")
+                    self.historical_data[variable_name] = df.set_index('Year')['Value']
+                elif 'Year' in df.columns and 'Value' in df.columns:
+                    self.historical_data[variable_name] = df.set_index('Year')['Value']
+                elif 'date' in df.columns and 'price' in df.columns:
+                    df['year'] = pd.to_datetime(df['date']).dt.year
+                    self.historical_data[variable_name] = df.groupby('year')['price'].mean()
+                if variable_name in self.historical_data:
+                    self.historical_data[variable_name].index = (
+                        self.historical_data[variable_name].index.astype(int)
+                    )
+            except Exception as e:
+                if variable_name == 'carbon_price':
+                    raise RuntimeError(
+                        f"Failed to load historical carbon prices from {file_path}: {e}"
+                    )
+                print(f"Warning: Could not load historical data file {file_path}: {e}")
+
+    def get_price_control(self, year: int, config: str = 'central') -> float:
+        """Get price control value for a specific year and config."""
+        if self.price_control_data.empty or config not in self.price_control_data.columns:
+            return 1.0
+        if year in self.price_control_data.index:
+            return self.price_control_data.loc[year, config]
+        return 1.0
+
     def get_historical_data(self, variable: str, nominal: bool = False) -> Optional[pd.Series]:
-        """Get historical data for a variable."""
-        return self.historical_manager.get_historical_data(variable, nominal)
+        """Get historical data for a variable if available."""
+        if variable == 'carbon_price':
+            real_prices = self.historical_data.get('carbon_price')
+            if real_prices is None:
+                return None
+            if nominal:
+                return convert_real_to_nominal(real_prices, cpi_data=self.cpi_data)
+            return real_prices
+        return self.historical_data.get(variable)
+
+    def get_combined_series(
+        self, variable: str, model_data: pd.Series, nominal: bool = False
+    ) -> pd.Series:
+        """Combine historical and model data, with historical data prefixed."""
+        hist_data = self.get_historical_data(variable, nominal=nominal)
+        if hist_data is None:
+            return model_data
+        model_years = set(model_data.index)
+        hist_data = hist_data[~hist_data.index.isin(model_years)]
+        return pd.concat([hist_data, model_data]).sort_index()
+
+    def convert_to_nominal(self, real_prices: pd.Series) -> pd.Series:
+        """Convert real prices (2023 NZD) to nominal prices."""
+        return convert_real_to_nominal(real_prices, cpi_data=self.cpi_data)
 

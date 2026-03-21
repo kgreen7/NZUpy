@@ -448,14 +448,3 @@ class ScenarioManager:
         # Store scenario name for reference
         self.model._active_scenario_name = scenario_name
 
-    def set_price_control_config(self, scenario_name, config_name):
-        """Set price control configuration for a specific scenario."""
-        
-        # Get the scenario index
-        scenario_index = self.model.scenarios.index(scenario_name)
-
-        # Store the config name in the scenario's component config
-        self.model.component_configs[scenario_index].price_control_config = config_name
-
-        # Verify the setting
-        stored_config = getattr(self.model.component_configs[scenario_index], 'price_control_config', None)

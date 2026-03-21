@@ -88,3 +88,33 @@ class TestListAvailableConfigs:
             assert isinstance(configs, list)
             assert len(configs) > 0, f"No configs found for component '{component}'"
             assert 'central' in configs, f"'central' config missing for '{component}'"
+
+
+class TestHistoricalData:
+    def test_historical_carbon_price_loaded(self, data_handler):
+        """Historical carbon prices are loaded and accessible."""
+        prices = data_handler.get_historical_data('carbon_price')
+        assert prices is not None
+        assert len(prices) > 0
+        assert isinstance(prices, pd.Series)
+
+    def test_price_control_lookup(self, data_handler):
+        """Price control values can be looked up by year and config."""
+        value = data_handler.get_price_control(2024, config='central')
+        assert value is not None
+        assert isinstance(value, (int, float))
+
+    def test_price_control_missing_year_returns_default(self, data_handler):
+        """Price control lookup for unknown year returns 1.0."""
+        value = data_handler.get_price_control(1900, config='central')
+        assert value == 1.0
+
+    def test_cpi_data_loaded(self, data_handler):
+        """CPI data is loaded for real/nominal conversion."""
+        assert data_handler.cpi_data is not None
+        assert len(data_handler.cpi_data) > 0
+
+    def test_get_historical_data_unknown_variable(self, data_handler):
+        """Unknown variable returns None."""
+        result = data_handler.get_historical_data('nonexistent_variable')
+        assert result is None

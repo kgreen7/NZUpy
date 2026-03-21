@@ -72,7 +72,7 @@ pip install -e .
 
 ```python
 from model.core.base_model import NZUpy
-from model.utils.chart_generator import ChartGenerator
+from model.interface.chart_generator import ChartGenerator
 
 # Initialise model
 nzu = NZUpy()

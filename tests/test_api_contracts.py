@@ -232,3 +232,68 @@ class TestMethodChaining:
 
         result = nzu.fill('liquidity_factor', 0.15)
         assert result is nzu
+
+
+# ===========================================================================
+# Price control routing — fill() and fill_component()
+# ===========================================================================
+
+class TestPriceControlRouting:
+    def _base_model(self, test_data_dir):
+        from model.core.base_model import NZUpy
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2035)
+        nzu.define_scenarios(['Test'])
+        nzu.allocate()
+        nzu.fill_defaults()
+        return nzu
+
+    def test_fill_price_control_series_accepted(self, test_data_dir):
+        """fill('price_control', pd.Series(...)) stores override without error."""
+        nzu = self._base_model(test_data_dir)
+        override = pd.Series({year: -1.0 for year in range(2024, 2030)})
+        nzu.fill('price_control', override)
+        cfg = nzu.component_configs[0]
+        assert cfg.price_control_override is not None
+        assert cfg.price_control_override[2025] == -1.0
+
+    def test_fill_price_control_non_series_raises(self, test_data_dir):
+        """fill('price_control', scalar) raises ValueError."""
+        nzu = self._base_model(test_data_dir)
+        with pytest.raises(ValueError, match="pd.Series"):
+            nzu.fill('price_control', 1.0)
+
+    def test_fill_price_control_runs_and_produces_prices(self, test_data_dir):
+        """Model runs with price_control override and produces valid prices."""
+        nzu = self._base_model(test_data_dir)
+        nzu.fill('price_control', pd.Series({year: -1.0 for year in range(2024, 2030)}))
+        nzu.run()
+        prices = nzu.prices[('Test', 'carbon_price')]
+        assert prices.notna().all()
+        assert (prices > 0).all()
+
+    def test_fill_component_price_stores_config_name(self, test_data_dir):
+        """fill_component('price', config='central') stores config name on ComponentConfig."""
+        nzu = self._base_model(test_data_dir)
+        nzu.fill_component('price', config='central')
+        cfg = nzu.component_configs[0]
+        assert getattr(cfg, 'price_control_config', None) == 'central'
+
+    def test_fill_component_price_invalid_component_raises(self, test_data_dir):
+        """fill_component with unknown component still raises ValueError."""
+        nzu = self._base_model(test_data_dir)
+        with pytest.raises(ValueError, match="Unknown component"):
+            nzu.fill_component('not_a_component', config='central')
+
+    def test_price_control_override_is_per_scenario(self, test_data_dir):
+        """Price control override on scenario 0 does not affect scenario 1."""
+        from model.core.base_model import NZUpy
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2035)
+        nzu.define_scenarios(['S1', 'S2'])
+        nzu.allocate()
+        nzu.fill_defaults()
+        override = pd.Series({year: -1.0 for year in range(2024, 2030)})
+        nzu.fill('price_control', override, scenario='S1')
+        assert nzu.component_configs[0].price_control_override is not None
+        assert nzu.component_configs[1].price_control_override is None

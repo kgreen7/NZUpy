@@ -616,33 +616,3 @@ class ModelRunner:
         
         return results
     
-    def _compile_component_results(self) -> Dict[str, Any]:
-        """
-        Compile results from individual model components.
-        
-        Returns:
-            Dictionary with component-specific results
-        """
-        # Compile stockpile component results
-        stockpile_component = {
-            'results': self.model.stockpile.results.copy() if hasattr(self.model.stockpile, 'results') else None,
-            'stockpile_balance': self.model.stockpile.stockpile_balance.copy() if hasattr(self.model.stockpile, 'stockpile_balance') else None,
-            'surplus_balance': self.model.stockpile.surplus_balance.copy() if hasattr(self.model.stockpile, 'surplus_balance') else None
-        }
-        
-        # Add convenience properties if available
-        if hasattr(self.model.stockpile, 'is_stockpile_used'):
-            stockpile_component['is_stockpile_used'] = self.model.stockpile.is_stockpile_used
-            
-        if hasattr(self.model.stockpile, 'stockpile_usage_amounts'):
-            stockpile_component['stockpile_usage_amounts'] = self.model.stockpile.stockpile_usage_amounts
-        
-        # Compile all component results
-        return {
-            'stockpile_component': stockpile_component,
-            'emissions_component': self.model.emissions_results,
-            'price_response_component': self.model.price_response_results,
-            'forestry_component': self.model.forestry_results,
-            'auction_component': self.model.auction_results,
-            'industrial_component': self.model.industrial_results
-        }
