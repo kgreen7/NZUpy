@@ -148,6 +148,63 @@ The project is organised into the following directories:
 - **examples/** - Example notebooks demonstrating operation of model
   - **outputs/** - Results data for example notebooks
 
+## Testing
+
+Tests require `pytest` and `pytest-cov`, both included in `requirements.txt`.
+
+### Running the test suite
+
+```bash
+# Run all tests (from project root)
+pytest
+
+# Run a single test file
+pytest tests/test_auction.py
+
+# Run a specific test class
+pytest tests/test_stockpile.py::TestSurplusUsage
+```
+
+### Test coverage
+
+```bash
+# Coverage report in terminal
+pytest --cov=model --cov-report=term-missing
+
+# Coverage as HTML report (then open htmlcov/index.html)
+pytest --cov=model --cov-report=html
+```
+
+### Saving test results
+
+By default results print to the terminal. To save them:
+
+```bash
+# Plain text
+pytest > test_results.txt 2>&1
+
+# JUnit XML (machine-readable, suitable for CI)
+pytest --junitxml=test_results.xml
+```
+
+### Test structure
+
+The suite has three tiers:
+
+| Tier | Files | What it tests | Approx. runtime |
+|------|-------|---------------|-----------------|
+| 1 — Component isolation | `test_data_handler.py`, `test_auction.py`, `test_industrial.py`, `test_emissions.py`, `test_price_response.py`, `test_stockpile.py`, `test_forestry.py`, `test_calculation_engine.py` | Each supply/demand component in isolation with synthetic data | ~25 s |
+| 2 — Integration | `test_integration.py` | Full model runs; structural invariants and regression values | ~5 min |
+| 3 — API contracts | `test_api_contracts.py` | User-facing workflow: error handling, method chaining, multi-scenario | ~1 min |
+
+### Test fixtures
+
+Tests use **frozen synthetic data** in `tests/fixtures/` — simple round-number CSVs that do not change when real input data is updated. Do not update fixture files when updating `data/inputs/`; they are intentionally decoupled.
+
+The `tests/conftest.py` fixtures copy these files into a temporary directory for each test session.
+
+---
+
 ## Model Components
 
 ### Supply Components
@@ -183,7 +240,6 @@ emissions = model.demand.xs('emissions', level='variable', axis=1)
 
 - Improved representation of historical years data in output results
 - Ability to run model with fixed (exogenous) NZU price paths
-- Expanded documentation and user guide
 
 ## Frequently asked questions
 
