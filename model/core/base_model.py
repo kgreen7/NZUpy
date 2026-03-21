@@ -304,6 +304,19 @@ class NZUpy:
         # Price
         'start_price': 'price',
         'price_control': 'price',
+        # Pricing mode
+        'pricing_mode': 'pricing',
+        'price_path': 'pricing',
+        'price_change_rate': 'pricing',
+    }
+
+    # Mode switches: name → tuple of valid values
+    _MODE_OPTIONS = {
+        'forestry_mode':             ('exogenous', 'endogenous'),
+        'pricing_mode':              ('optimised', 'fixed_path', 'fixed_rate'),
+        'penalise_shortfalls':       (True, False),
+        'manley_sensitivity':        ('low', 'central', 'high'),
+        'forestry_price_assumption': ('future', 'current'),
     }
 
     def fill_defaults(self, config: str = 'central') -> 'NZUpy':
@@ -444,6 +457,13 @@ class NZUpy:
                 "Model must be allocated before filling. Call allocate() first."
             )
 
+        # Inform the user when they pass a mode variable through fill()
+        if variable_name in self._MODE_OPTIONS:
+            print(
+                f"Note: '{variable_name}' is a mode switch. "
+                f"Consider using set_mode('{variable_name}', ...) instead."
+            )
+
         # Resolve component
         if component is None:
             if variable_name not in self._VARIABLE_COMPONENT_MAP:
@@ -516,6 +536,27 @@ class NZUpy:
                 if not isinstance(value, int) or value not in [1, 2]:
                     raise ValueError("demand_model_number must be 1 or 2")
                 self.component_configs[i].demand_model_number = value
+            elif component == 'pricing':
+                if variable_name == 'pricing_mode':
+                    if value not in self._MODE_OPTIONS['pricing_mode']:
+                        raise ValueError(
+                            f"pricing_mode must be one of "
+                            f"{list(self._MODE_OPTIONS['pricing_mode'])}, got '{value}'"
+                        )
+                    self.component_configs[i].pricing_mode = value
+                elif variable_name == 'price_path':
+                    if not isinstance(value, pd.Series):
+                        raise ValueError("price_path must be a pd.Series")
+                    self.component_configs[i].price_path = value
+                elif variable_name == 'price_change_rate':
+                    if not isinstance(value, (int, float)):
+                        raise ValueError("price_change_rate must be a number")
+                    self.component_configs[i].price_change_rate = float(value)
+                else:
+                    raise ValueError(
+                        f"Unknown pricing variable: '{variable_name}'. "
+                        f"Valid options: pricing_mode, price_path, price_change_rate"
+                    )
             elif isinstance(value, pd.Series):
                 self._store_series(variable_name, value, component=component, scenario_index=i)
             else:
@@ -548,6 +589,74 @@ class NZUpy:
             nzu.run()
         """
         return self.scenario_manager.configure_range_scenarios()
+
+    def set_mode(
+        self,
+        mode_name: str,
+        value,
+        scenario: Optional[Union[str, int]] = None,
+    ) -> 'NZUpy':
+        """
+        Set a structural mode switch for one or all scenarios.
+
+        Use this for categorical model behaviour switches (e.g. pricing_mode,
+        forestry_mode). For data values use fill().
+
+        Args:
+            mode_name: Mode to set — one of 'pricing_mode', 'forestry_mode',
+                       'penalise_shortfalls', 'manley_sensitivity',
+                       'forestry_price_assumption'.
+            value: New value. Must be one of the valid options for the mode.
+            scenario: Scenario name or index. If None, applies to ALL scenarios.
+
+        Returns:
+            Self for method chaining.
+
+        Example:
+            nzu.set_mode('pricing_mode', 'fixed_path', scenario='Alt')
+            nzu.set_mode('forestry_mode', 'endogenous')   # all scenarios
+        """
+        if not self._primed:
+            raise ValueError(
+                "Model must be allocated before setting modes. Call allocate() first."
+            )
+
+        if mode_name not in self._MODE_OPTIONS:
+            raise ValueError(
+                f"Unknown mode '{mode_name}'. "
+                f"Valid modes: {list(self._MODE_OPTIONS.keys())}"
+            )
+        if value not in self._MODE_OPTIONS[mode_name]:
+            raise ValueError(
+                f"Invalid value '{value}' for mode '{mode_name}'. "
+                f"Valid options: {list(self._MODE_OPTIONS[mode_name])}"
+            )
+
+        # Resolve scenario index(es)
+        if scenario is None:
+            indices = list(range(len(self.scenarios)))
+        elif isinstance(scenario, int):
+            if scenario < 0 or scenario >= len(self.scenarios):
+                raise ValueError(
+                    f"Scenario index {scenario} out of range "
+                    f"(0–{len(self.scenarios) - 1})."
+                )
+            indices = [scenario]
+        else:
+            if scenario not in self.scenarios:
+                raise ValueError(
+                    f"Unknown scenario: '{scenario}'. "
+                    f"Available: {', '.join(self.scenarios)}"
+                )
+            indices = [self.scenarios.index(scenario)]
+
+        for i in indices:
+            setattr(self.component_configs[i], mode_name, value)
+
+        scope = (f"scenario '{self.scenarios[indices[0]]}'"
+                 if len(indices) == 1 else "all scenarios")
+        print(f"Set {mode_name}='{value}' for {scope}.")
+        return self
 
     # -------------------------------------------------------------------------
     # Discoverability methods
@@ -587,7 +696,7 @@ class NZUpy:
         variables = self._COMPONENT_VARIABLES.get(component, [])
 
         print(f"\nAvailable configs for '{component}':")
-        print(f"  Configs  : {available}")
+        print(f"  Configs: {available}")
         print(f"  Variables: {variables}")
 
         return {var: available for var in variables}

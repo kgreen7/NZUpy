@@ -386,9 +386,9 @@ class ScenarioManager:
         from model.demand.emissions import EmissionsDemand
         from model.demand.price_response import PriceResponse
         
-        # Initialize components with proper error handling
+        # Initialise components with proper error handling
         try:
-            # Initialize StockpileSupply with proper parameters from config
+            # Initialise StockpileSupply with proper parameters from config
             self.model.stockpile = StockpileSupply(
                 years=self.model.years,
                 extended_years=getattr(self.model, 'extended_years', None),

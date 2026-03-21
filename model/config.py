@@ -82,3 +82,8 @@ class ComponentConfig:
     forestry_discount_rate: Optional[float] = None
     forestry_forward_years: Optional[int] = None
 
+    # Pricing mode settings
+    pricing_mode: str = 'optimised'             # 'optimised' | 'fixed_path' | 'fixed_rate'
+    price_path: Optional[object] = None         # pd.Series of prices, used when pricing_mode='fixed_path'
+    price_change_rate: Optional[float] = None   # scalar rate, used when pricing_mode='fixed_rate'
+
