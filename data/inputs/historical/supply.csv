@@ -1,5 +1,7 @@
-Year,Value
-2020,20404
-2021,66873
-2022,38467
-2023,37355
+Year,Value,Notes
+2020,20404,From MfE NZ ETS excel model
+2021,66873,From MfE NZ ETS excel model
+2022,38467,From MfE NZ ETS excel model
+2023,9377,From MfE NZ ETS excel model
+2024,16326,From MfE NZ ETS excel model
+2025,10791,From MfE NZ ETS excel model

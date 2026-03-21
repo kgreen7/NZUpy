@@ -12,6 +12,7 @@ Key features include:
 
 - **Carbon price projections** - Calculate price paths that balance supply and demand
 - **Component-based architecture** - Modular design for supply (auctions, forestry, industrial allocation, stockpile) and demand (emissions, price response)
+- **Endogenous forestry** - Price-responsive afforestation using the Manley logistic model, matching the Excel model's methodology
 - **Scenario analysis** - Run and compare multiple scenarios with different input configurations
 - **Uncertainty analysis** - Generate uncertainty bands around central projections
 - **Visualisation tools** - Create standardised charts for model outputs
@@ -32,7 +33,7 @@ git clone https://github.com/kgreen7/NZUpy.git
 cd NZUpy
 ```
 
-2. Create and activate a virtual environment (recommended):
+1. Create and activate a virtual environment (recommended):
 
 ```bash
 # Create a virtual environment
@@ -45,13 +46,21 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-3. Install required packages:
+2. Install required packages:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. (Optional) If you plan to develop or modify the code, you can install the package in development mode:
+3. Register the virtual environment as a Jupyter kernel:
+
+```bash
+python -m ipykernel install --user --name=nzupy --display-name "Python (NZUpy)"
+```
+
+4. Launch Jupyter and select the **"Python (NZUpy)"** kernel when opening a notebook (Kernel → Change Kernel → Python (NZUpy)).
+
+(Optional) If you plan to develop or modify the code, you can install the package in development mode:
 
 ```bash
 pip install -e .
@@ -65,24 +74,22 @@ pip install -e .
 from model.core.base_model import NZUpy
 from model.utils.chart_generator import ChartGenerator
 
-# Create a new model instance
+# Initialise model
 nzu = NZUpy()
-
-# Define time periods
 nzu.define_time(2024, 2050)
+nzu.define_scenarios(['Baseline'])
+nzu.allocate()
 
-# Define scenarios
-nzu.define_scenarios(['Low Auction', 'Central', 'High Auction'])
+# Load central configurations for all components
+nzu.fill_defaults()
 
-# Prime the model
-nzu.prime()
+# Override individual components or parameters as needed
+nzu.fill_component('stockpile', config='EY24_central')
+nzu.fill_component('emissions', config='CCC_CPR', scenario='Baseline')
 
-# Configure scenarios
-nzu.use_central_configs(0)  # Set everything to central for the first scenario
-nzu.set_parameter(0, "initial_stockpile", 159902)  # Set specific parameter
-
-# Run the model
-results = nzu.run()
+# Run and access results
+nzu.run()
+print(nzu.prices)   # carbon price path
 
 # Visualise results
 charts = ChartGenerator(nzu)
@@ -90,21 +97,38 @@ carbon_price_chart = charts.carbon_price_chart()
 carbon_price_chart.show()
 ```
 
+### Endogenous Forestry (Manley Model)
+
+```python
+nzu = NZUpy()
+nzu.define_time(2024, 2050)
+nzu.define_scenarios(['Endogenous'])
+nzu.allocate()
+nzu.fill_defaults()
+nzu.fill_component('stockpile', config='EY24_central')
+
+# Enable price-responsive afforestation
+nzu.fill('forestry_mode', 'endogenous')
+nzu.fill('manley_sensitivity', 'central')  # 'low', 'central', or 'high'
+
+nzu.run()
+print(nzu.forestry)  # includes Manley planting and total removals
+```
+
 ### Running Uncertainty Analysis
 
 ```python
-# Define model with range scenarios
+# Range mode automatically sets up 5 demand sensitivity scenarios
 nzu = NZUpy()
 nzu.define_time(2024, 2050)
-nzu.define_scenario_type('Range')  # Use Range mode
-nzu.define_scenarios(["95% Lower", "1 s.e lower", "central", "1 s.e upper", "95% Upper"])
-nzu.prime()
-nzu.configure_range_scenarios()  # Automatically configure the range scenarios
-results = nzu.run()
+nzu.define_scenario_type('Range')
+nzu.allocate()
+nzu.fill_range_configs()  # configures each sensitivity level from CSV
+nzu.run()
 
 # Generate uncertainty charts
 charts = ChartGenerator(nzu)
-price_chart = charts.carbon_price_chart()  # Will automatically use uncertainty bands
+price_chart = charts.carbon_price_chart()  # renders with uncertainty bands
 price_chart.show()
 ```
 
@@ -113,13 +137,14 @@ price_chart.show()
 The project is organised into the following directories:
 
 - **model/** - Main model code
-  - **core/** - Core model functionality and interfaces
+  - **core/** - Core model functionality
   - **supply/** - Supply components (auction, forestry, industrial, stockpile)
   - **demand/** - Demand components (emissions, price response)
   - **utils/** - Utility functions and data handling
   - **interface/** - Charting and user interface functionality
-- **data/** - Input data and model outputs
+- **data/** - Input data and reference material
   - **inputs/** - Model input data
+  - **reference/** - Provides reference material for model and excel model that NZUpy is based on.
 - **examples/** - Example notebooks demonstrating operation of model
   - **outputs/** - Results data for example notebooks
 
@@ -156,14 +181,9 @@ emissions = model.demand.xs('emissions', level='variable', axis=1)
 
 ## Forthcoming features
 
-A small selection of features from the Government's model have yet to be implemented and are planned for inclusion in the coming weeks/months:
-
-- Enable use of Manley equation afforestation response
 - Improved representation of historical years data in output results
-- Ability to run model with fxed (exogenous) NZU price paths
-- Documentation
-
-The model will also be updated following the release of the Climate Change Commission's forthcoming advice on 2026-2030 NZ ETS auction settings to incorporate their recommendations.
+- Ability to run model with fixed (exogenous) NZU price paths
+- Expanded documentation and user guide
 
 ## Frequently asked questions
 
@@ -175,9 +195,9 @@ The model will also be updated following the release of the Climate Change Commi
 
 - NZUpy is licensed under a permissive MIT license, so is free to use and adapt, including for commercial purposes (refer LICENSE file for specifics).
 
-***What do you have planned for the repository? Will you update the repository following the Climate Commission's next report on NZ ETS auction settings for 2026-2030?***
+***Will you update the repository to reflect new NZ ETS settings as they are announced?***
 
-- Yes, I plan to release an updated version of the model following annoucement of the Commission's recommendations for auction settings to allow users to easily incorporate these options.
+- Yes, the model will be updated as new auction settings and policy parameters are published to allow users to easily incorporate these.
 
 ## Contributions & issues
 

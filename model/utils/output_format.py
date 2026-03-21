@@ -477,12 +477,24 @@ class OutputFormat:
                     forestry_results = result['model']['forestry_results']
                 
                 if forestry_results is not None:
+                    # Primary supply output (always present)
                     if 'total_supply' in forestry_results:
                         data[(scenario, 'removals')] = forestry_results['total_supply']
                     elif 'static_supply' in forestry_results:
                         data[(scenario, 'removals')] = forestry_results['static_supply']
                     elif 'manley_supply' in forestry_results:
                         data[(scenario, 'removals')] = forestry_results['manley_supply']
+
+                    # Manley diagnostic columns (endogenous mode only; absent in exogenous)
+                    for col in [
+                        'historic_supply', 'manley_supply', 'manley_price',
+                        'manley_planting_total', 'manley_planting_permanent',
+                        'manley_planting_production', 'manley_planting_natural',
+                    ]:
+                        series = forestry_results.get(col) if isinstance(forestry_results, dict) \
+                            else (forestry_results[col] if col in forestry_results.columns else None)
+                        if series is not None and series.any():
+                            data[(scenario, col)] = series
         
         # Create DataFrame with multi-index columns
         if data:
@@ -557,9 +569,6 @@ class OutputFormat:
                             data[(scenario, 'forestry_held')] = stockpile_results['forestry_held_addition']
                         if 'forestry_surrender_addition' in stockpile_results.columns:
                             data[(scenario, 'forestry_surrender')] = stockpile_results['forestry_surrender_addition']
-                        if 'stockpile_without_forestry' in stockpile_results.columns:
-                            data[(scenario, 'without_forestry')] = stockpile_results['stockpile_without_forestry']
-                        
                         # Add existing payback tracking
                         if 'borrowed_units' in stockpile_results.columns:
                             data[(scenario, 'borrowed_units')] = stockpile_results['borrowed_units']
@@ -625,12 +634,36 @@ class OutputFormat:
                         list(df.columns),
                         names=['scenario', 'variable']
                     )
+
+            # Prepend reference year row using initial stockpile values
+            ref_year = None
+            ref_initial = {}
+            for scenario in self.scenarios:
+                if scenario in self.results:
+                    m = self.results[scenario].get('model', {})
+                    if ref_year is None and m.get('stockpile_reference_year') is not None:
+                        ref_year = m['stockpile_reference_year']
+                    if m.get('stockpile_initial_values') is not None:
+                        ref_initial[scenario] = m['stockpile_initial_values']
+
+            if ref_year is not None and ref_initial:
+                ref_data = {}
+                for col in df.columns:
+                    scenario, variable = col
+                    if scenario in ref_initial and variable in ref_initial[scenario]:
+                        ref_data[col] = ref_initial[scenario][variable]
+                    else:
+                        ref_data[col] = 0.0
+                ref_df = pd.DataFrame(ref_data, index=[ref_year])
+                ref_df.index.name = 'year'
+                ref_df.columns = df.columns  # preserve ['scenario', 'variable'] names
+                df = pd.concat([ref_df, df])
         else:
             # Create empty DataFrame with proper structure - include all variables
             stockpile_vars = [
                 'balance', 'surplus_balance', 'non_surplus_balance', 'ratio_to_demand',
                 'units_used', 'surplus_used', 'non_surplus_used', 'forestry_held',
-                'forestry_surrender', 'forestry_contribution', 'without_forestry',
+                'forestry_surrender', 'forestry_contribution',
                 'borrowed_units', 'payback_units', 'net_borrowing', 'cumulative_net_borrowing',
                 'cumulative_forestry_additions'
             ]
@@ -850,7 +883,7 @@ class OutputFormat:
             'forestry': ['removals'],
             'stockpile': ['balance', 'surplus_balance', 'non_surplus_balance', 'ratio_to_demand',
                         'units_used', 'surplus_used', 'non_surplus_used', 'forestry_held',
-                        'forestry_surrender', 'forestry_contribution', 'without_forestry',
+                        'forestry_surrender', 'forestry_contribution',
                         'borrowed_units', 'payback_units', 'net_borrowing', 'cumulative_net_borrowing',
                         'cumulative_forestry_additions'],
             'demand': ['baseline_emissions', 'emissions', 'gross_mitigation', 'net_mitigation', 
@@ -970,7 +1003,6 @@ class OutputFormat:
             'forestry_held': {'description': 'Forestry held contributions', 'units': 'kt CO2-e', 'type': 'output'},
             'forestry_surrender': {'description': 'Forestry surrender contributions', 'units': 'kt CO2-e', 'type': 'output'},
             'forestry_contribution': {'description': 'Net forestry contribution', 'units': 'kt CO2-e', 'type': 'output'},
-            'without_forestry': {'description': 'Stockpile balance excluding forestry', 'units': 'kt CO2-e', 'type': 'output'},
             'borrowed_units': {'description': 'Annual borrowing from stockpile', 'units': 'kt CO2-e', 'type': 'output'},
             'payback_units': {'description': 'Annual repayment to stockpile', 'units': 'kt CO2-e', 'type': 'output'},
             'net_borrowing': {'description': 'Net borrowing (paybacks minus borrowing)', 'units': 'kt CO2-e', 'type': 'output'},

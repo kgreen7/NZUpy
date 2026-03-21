@@ -1,5 +1,5 @@
 """
-Consolidated data handling utilities for the NZ ETS model.
+Consolidated data handling utilities for the NZUpy model.
 
 This module provides functions for loading and validating data from CSV files,
 converting to appropriate pandas structures, and providing a clean interface
@@ -30,22 +30,21 @@ class DataHandler:
     """
     
     def __init__(
-        self, 
+        self,
         data_dir: Union[str, Path],
-        use_config_loading: bool = False
     ):
         """Initialise the DataHandler."""
         # Set up data directory paths
         self.data_dir = Path(data_dir)
-        self.use_config_loading = use_config_loading
-        
+
         # Set up directory paths
         self.parameters_dir = self.data_dir / "inputs" / "parameters"
         self.supply_dir = self.data_dir / "inputs" / "supply"
         self.demand_dir = self.data_dir / "inputs" / "demand"
         self.economic_dir = self.data_dir / "inputs" / "economic"
         self.stockpile_dir = self.data_dir / "inputs" / "stockpile"
-        
+        self.forestry_dir = self.data_dir / "inputs" / "forestry"
+
         # Initialise data attributes as None
         self.emissions_baselines_data = None
         self.auctions_data = None
@@ -53,38 +52,25 @@ class DataHandler:
         self.removals_data = None
         self.demand_models_data = None
         self.model_parameters_data = None
-        
+
+        # forestry data attributes
+        self.historical_removals_data = None
+        self.yield_tables_data = None
+        self.yield_increments = None # dict of {forest_type: np.array}
+        self.afforestation_projections_data = None
+        self.manley_parameters_data = None
+
         # Create historical data manager
         self.historical_manager = HistoricalDataManager(data_dir)
-        
+
         # Initialize scenario-specific data storage
         self.scenario_data = {}
-        
-        # Always load scenario datasets first
+
+        # Load all config-based datasets
         self._load_config_datasets()
-        
-        # Then load standard data if not in scenario mode
-        if not use_config_loading:
-            self._load_all_data()
-    
-    #
-    # Standard data loading methods
-    #
-    def _load_all_data(self):
-        """Load all available data from the data directory."""
-        # Load parameters
-        self._load_model_parameters()
-        self._load_optimisation_parameters()
-        
-        # Load supply data
-        self._load_auction_data()
-        self._load_industrial_allocation_data()
-        self._load_stockpile_balance_data()
-        self._load_forestry_data()
-        self._load_forestry_variables()
-        
-        # Load demand data
-        self._load_emissions_data()
+
+        # Load forestry datasets
+        self._load_forestry_datasets()
     
     def _load_csv(self, file_path: Path, index_col: Optional[Union[str, int]] = None) -> pd.DataFrame:
         """
@@ -112,258 +98,6 @@ class DataHandler:
         except pd.errors.ParserError:
             raise ValueError(f"Error parsing CSV file: {file_path}")
     
-    def _load_model_parameters(self):
-        """Load model parameters from CSV file."""
-        try:
-            file_path = self.parameters_dir / "model_parameters.csv"
-            df = self._load_csv(file_path)
-            
-            # Filter for central config and convert to dictionary
-            central_params = df[df['Config'].str.lower() == 'central']
-            self.model_parameters = dict(zip(central_params['Variable'], central_params['Value']))
-            
-            # Convert numeric parameters
-            for param in ['start_year', 'end_year', 'liquidity_factor']:
-                param_in_csv = param
-                if param not in self.model_parameters and param == 'liquidity_factor' and 'liquidity' in self.model_parameters:
-                    param_in_csv = 'liquidity'
-                
-                if param_in_csv in self.model_parameters:
-                    self.model_parameters[param] = float(self.model_parameters[param_in_csv])
-                elif param == 'liquidity_factor':
-                    raise ValueError("Required parameter 'liquidity_factor' or 'liquidity' not found in model_parameters.csv")
-            
-            # Convert integer parameters
-            for param in ['start_year', 'end_year']:
-                if param in self.model_parameters:
-                    self.model_parameters[param] = int(self.model_parameters[param])
-                    
-        except (FileNotFoundError, ValueError) as e:
-            raise ValueError(f"Failed to load model parameters: {e}")
-    
-    def _load_optimisation_parameters(self):
-        """Load optimisation parameters from CSV file."""
-        file_path = self.parameters_dir / "optimisation_parameters.csv"
-        
-        try:
-            df = self._load_csv(file_path)
-            
-            # Required parameters and their types
-            required_params = {
-                'coarse_step': int,
-                'fine_step': int,
-                'max_rate': int,
-                'max_iterations': int
-            }
-            
-            # Validate and convert parameters
-            self.optimisation_parameters = {}
-            for param, param_type in required_params.items():
-                if param not in df['parameter'].values:
-                    raise ValueError(f"Missing required parameter: {param}")
-                value = df.loc[df['parameter'] == param, 'value'].iloc[0]
-                self.optimisation_parameters[param] = param_type(value)
-                
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Optimisation parameters file not found: {file_path}")
-        except Exception as e:
-            raise ValueError(f"Error loading optimisation parameters: {e}")
-    
-    def _load_auction_data(self):
-        """Load auction data from CSV file."""
-        try:
-            # Load from auctions.csv
-            file_path = self.supply_dir / "auctions.csv"
-            df = self._load_csv(file_path)
-            
-            # Create DataFrame with required columns
-            auction_data = pd.DataFrame(index=df['Year'].unique())
-            auction_data.index = auction_data.index.astype(int)
-            auction_data.index.name = 'year'
-            
-            # Get data for each required variable
-            volume_data = df[df['Variable'] == 'auction_volume']
-            price_data = df[df['Variable'] == 'auction_price']
-            ccr1_price = df[df['Variable'] == 'CCR_price_1']
-            ccr2_price = df[df['Variable'] == 'CCR_price_2']
-            ccr1_volume = df[df['Variable'] == 'CCR_volume_1']
-            ccr2_volume = df[df['Variable'] == 'CCR_volume_2']
-            
-            # Add columns with central config data, ensuring numeric conversion
-            auction_data['base_volume'] = pd.to_numeric(
-                volume_data[volume_data['Config'] == 'central'].set_index('Year')['Value'].str.replace(',', ''),
-                errors='coerce'
-            )
-            auction_data['auction_reserve_price'] = pd.to_numeric(
-                price_data[price_data['Config'] == 'central'].set_index('Year')['Value'],
-                errors='coerce'
-            )
-            auction_data['ccr_trigger_price_1'] = pd.to_numeric(
-                ccr1_price[ccr1_price['Config'] == 'central'].set_index('Year')['Value'],
-                errors='coerce'
-            )
-            auction_data['ccr_trigger_price_2'] = pd.to_numeric(
-                ccr2_price[ccr2_price['Config'] == 'central'].set_index('Year')['Value'],
-                errors='coerce'
-            )
-            auction_data['ccr_volume_1'] = pd.to_numeric(
-                ccr1_volume[ccr1_volume['Config'] == 'central'].set_index('Year')['Value'].str.replace(',', ''),
-                errors='coerce'
-            )
-            auction_data['ccr_volume_2'] = pd.to_numeric(
-                ccr2_volume[ccr2_volume['Config'] == 'central'].set_index('Year')['Value'].str.replace(',', ''),
-                errors='coerce'
-            )
-            
-            self.auction_data = auction_data
-            
-        except (FileNotFoundError, ValueError) as e:
-            raise ValueError(f"Failed to load auction data: {e}")
-    
-    def _load_industrial_allocation_data(self):
-        """Load industrial allocation data from CSV file."""
-        try:
-            # Load from industrial_allocation.csv
-            file_path = self.supply_dir / "industrial_allocation.csv"
-            df = self._load_csv(file_path)
-            
-            # Store the full DataFrame with all configs
-            self.industrial_allocation_data_full = df
-            
-            # For standard loading mode, create a simplified DataFrame with just central config
-            if not self.use_config_loading:
-                # Create DataFrame with baseline_allocation column
-                allocation_data = pd.DataFrame(index=df['Year'].unique())
-                allocation_data.index = allocation_data.index.astype(int)
-                allocation_data.index.name = 'year'
-                
-                # Add baseline_allocation column from central config
-                central_data = df[df['Config'] == 'central']
-                allocation_data['baseline_allocation'] = central_data.set_index('Year')['Value']
-                
-                # Add activity_adjustment column (default to 1.0)
-                allocation_data['activity_adjustment'] = 1.0
-                
-                self.industrial_allocation_data = allocation_data
-            else:
-                # For config-based loading, use the full DataFrame
-                self.industrial_allocation_data = df.copy()
-            
-        except (FileNotFoundError, ValueError) as e:
-            raise ValueError(f"Failed to load industrial allocation data: {e}")
-    
-    def _load_stockpile_balance_data(self):
-        """Load stockpile balance data from CSV file."""
-        try:
-            # Load from stockpile_balance.csv in stockpile directory
-            file_path = self.stockpile_dir / "stockpile_balance.csv"
-            df = self._load_csv(file_path)
-            
-            # Store the full DataFrame with all configs
-            self.stockpile_balance_data = df
-            
-        except (FileNotFoundError, ValueError) as e:
-            raise ValueError(f"Failed to load stockpile balance data: {e}")
-    
-    def _load_forestry_data(self):
-        """Load forestry data from CSV file."""
-        try:
-            # Load from removals.csv
-            file_path = self.supply_dir / "removals.csv"
-            df = self._load_csv(file_path)
-            
-            # Filter for forestry_tradeable data
-            forestry_df = df[df['Variable'] == 'forestry_tradeable']
-            
-            # Create DataFrame with forestry_tradeable column
-            forestry_data = pd.DataFrame({
-                'forestry_tradeable': forestry_df[forestry_df['Config'] == 'central'].set_index('Year')['Value']
-            })
-            
-            # Convert index to int
-            forestry_data.index = forestry_data.index.astype(int)
-            forestry_data.index.name = 'year'
-            
-            self.forestry_data = forestry_data
-            
-        except (FileNotFoundError, ValueError) as e:
-            raise ValueError(f"Failed to load forestry data: {e}")
-    
-    def _load_forestry_variables(self):
-        """Load forestry variables (held and surrender) from CSV file."""
-        try:
-            # Load from removals.csv
-            file_path = self.supply_dir / "removals.csv"
-            df = self._load_csv(file_path)
-            
-            # Filter for held and surrender data
-            variables_df = df[df['Variable'].isin(['forestry_held', 'forestry_surrender'])]
-            
-            # Pivot to get variables as columns
-            forestry_vars = variables_df.pivot(
-                index='Year',
-                columns=['Config', 'Variable'],
-                values='Value'
-            )
-            
-            # Convert index to int
-            forestry_vars.index = forestry_vars.index.astype(int)
-            forestry_vars.index.name = 'year'
-            
-            self.forestry_variables = forestry_vars
-            
-        except (FileNotFoundError, ValueError) as e:
-            raise ValueError(f"Failed to load forestry variables: {e}")
-    
-    def _load_emissions_data(self):
-        """Load emissions data from CSV file."""
-        try:
-            # Load from emissions_baselines.csv
-            file_path = self.demand_dir / "emissions_baselines.csv"
-            df = self._load_csv(file_path)
-            
-            # Create DataFrame with base_emissions column
-            emissions_data = pd.DataFrame(index=df['Year'].unique())
-            emissions_data.index = emissions_data.index.astype(int)
-            emissions_data.index.name = 'year'
-            
-            # First try to get central config
-            central_data = df[df['Config'].str.lower() == 'central']
-            
-            # If central not available, try CCC_CPR as it's our main scenario
-            if central_data.empty:
-                central_data = df[df['Config'] == 'CCC_CPR']
-                print("Note: Using CCC_CPR config as central emissions scenario")
-            
-            # If still empty, use the first available config
-            if central_data.empty:
-                available_configs = df['Config'].unique()
-                if len(available_configs) > 0:
-                    central_data = df[df['Config'] == available_configs[0]]
-                    print(f"Note: Using {available_configs[0]} config as central emissions scenario")
-                else:
-                    raise ValueError("No emissions data configurations found")
-            
-            # Add base_emissions column
-            emissions_data['base_emissions'] = central_data.set_index('Year')['Value']
-            
-            # Add other available configs
-            ccc_cpr = df[df['Config'] == 'CCC_CPR']
-            ccc_dp = df[df['Config'] == 'CCC_DP']
-            
-            if not ccc_cpr.empty:
-                emissions_data['high_scenario'] = ccc_cpr.set_index('Year')['Value']
-            if not ccc_dp.empty:
-                emissions_data['low_scenario'] = ccc_dp.set_index('Year')['Value']
-            
-            self.emissions_data = emissions_data
-            
-        except (FileNotFoundError, ValueError) as e:
-            raise ValueError(f"Failed to load emissions data: {e}")
-    
-    #
-    # Config-based data loading methods
-    #
     def _load_config_datasets(self):
         """Load all config-based datasets."""
         try:
@@ -405,25 +139,159 @@ class DataHandler:
         except Exception as e:
             print(f"Warning: Error loading config datasets: {e}")
     
-    # Getter methods for both standard and config-based loading
+    def _load_forestry_datasets(self):
+        """Load forestry datasets. Failures are non-fatal — files are only
+        required when forestry_mode='endogenous'."""
+        for loader in [
+            self._load_historical_removals,
+            self._load_yield_tables,
+            self._load_afforestation_projections,
+            self._load_manley_parameters,
+        ]:
+            try:
+                loader()
+            except Exception as e:
+                print(f"Warning: {loader.__name__} failed: {e}")
+
+    def _load_historical_removals(self):
+        file_path = self.supply_dir / "historical_removals.csv"
+        if file_path.exists():
+            self.historical_removals_data = self._load_csv(file_path)
+
+    def _load_yield_tables(self):
+        file_path = self.forestry_dir / "yield_tables.csv"
+        if file_path.exists():
+            self.yield_tables_data = self._load_csv(file_path)
+            # Pre-compute annual yield increments for each forest type.
+            # np.diff(cumulative, prepend=0) gives: increment[0] = cumulative[0],
+            # increment[i] = cumulative[i] - cumulative[i-1] for i > 0.
+            self.yield_increments = {}
+            for forest_type in ['permanent_exotic', 'production_exotic', 'natural_forest']:
+                cumulative = self.yield_tables_data[forest_type].values.astype(float)
+                self.yield_increments[forest_type] = np.diff(cumulative, prepend=0)
+
+    def _load_afforestation_projections(self):
+        file_path = self.forestry_dir / "afforestation_projections.csv"
+        if file_path.exists():
+            self.afforestation_projections_data = self._load_csv(file_path)
+
+    def _load_manley_parameters(self):
+        file_path = self.forestry_dir / "manley_parameters.csv"
+        if file_path.exists():
+            self.manley_parameters_data = self._load_csv(file_path)
+
+    # ------------------------------------------------------------------
+    # Endogenous forestry getter methods
+    # ------------------------------------------------------------------
+
+    def get_historical_removals(self, config: Optional[str] = None,
+                              scenario_name: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get historic (old-forest) forestry data from historical_removals.csv.
+
+        Returns DataFrame indexed by year with columns:
+        historic_forestry_tradeable, historic_forestry_held, historic_forestry_surrender.
+        """
+        if self.historical_removals_data is None:
+            raise ValueError(
+                "Historic removals data not loaded. "
+                "Ensure historical_removals.csv exists in the supply directory."
+            )
+
+        config_lower = config.lower() if config else 'central'
+        data = self.historical_removals_data[
+            self.historical_removals_data['Config'].str.lower() == config_lower
+        ]
+        if data.empty:
+            raise KeyError(f"No historic removals data found for config '{config}'")
+
+        result = {}
+        for var in ['historic_forestry_tradeable', 'historic_forestry_held',
+                    'historic_forestry_surrender']:
+            var_data = data[data['Variable'] == var][['Year', 'Value']]
+            if not var_data.empty:
+                result[var] = var_data.set_index('Year')['Value'].astype(float)
+
+        df = pd.DataFrame(result)
+        df.index = df.index.astype(int)
+        df.index.name = 'year'
+        df = df.fillna(0.0)
+
+        # historical_removals.csv stores values in individual NZUs (t CO2-e).
+        # The model works in kt CO2-e — divide by 1000. TODO: ensure consistent CSV units
+        df = df / 1000.0
+        return df
+
+    def get_yield_increments(self) -> Dict[str, Any]:
+        """Return pre-computed annual yield increments dict {forest_type: np.array}."""
+        if self.yield_increments is None:
+            raise ValueError(
+                "Yield increments not computed. "
+                "Ensure yield_tables.csv exists in the forestry directory."
+            )
+        return {k: v.copy() for k, v in self.yield_increments.items()}
+
+    def get_afforestation_projections(self, config: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get MPI afforestation projections pivoted to wide format.
+
+        Returns DataFrame indexed by year with columns:
+        permanent_exotic, production_exotic, natural_forest.
+        """
+        if self.afforestation_projections_data is None:
+            raise ValueError(
+                "Afforestation projections data not loaded. "
+                "Ensure afforestation_projections.csv exists in the forestry directory."
+            )
+
+        config_lower = config.lower() if config else 'central'
+        data = self.afforestation_projections_data[
+            self.afforestation_projections_data['Config'].str.lower() == config_lower
+        ]
+        if data.empty:
+            raise KeyError(f"No afforestation projections found for config '{config}'")
+
+        result = data.pivot_table(index='Year', columns='Forest', values='Area', aggfunc='first')
+        result.index = result.index.astype(int)
+        result.index.name = 'year'
+        result.columns.name = None
+        return result.fillna(0.0)
+
+    def get_manley_parameters(self, config: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get Manley equation parameters, merging 'default' values with
+        config-specific overrides (low/central/high for f and LMV).
+        """
+        if self.manley_parameters_data is None:
+            raise ValueError(
+                "Manley parameters data not loaded. "
+                "Ensure manley_parameters.csv exists in the forestry directory."
+            )
+
+        df = self.manley_parameters_data
+        # Start with 'default' params
+        default_rows = df[df['Config'].str.lower() == 'default']
+        result = dict(zip(default_rows['Variable'],
+                          default_rows['Value'].astype(float)))
+
+        # Override with config-specific values (e.g., f, LMV)
+        config_lower = config.lower() if config else 'central'
+        config_rows = df[df['Config'].str.lower() == config_lower]
+        for _, row in config_rows.iterrows():
+            result[row['Variable']] = float(row['Value'])
+
+        return result
 
     def get_years(self) -> List[int]:
         """
         Get the years covered by the model.
-        
+
         Returns:
             List of years covered by the model.
         """
-        if self.use_config_loading:
-            # For config loading, use model parameters
-            params = self.get_model_parameters("central")
-            start_year = int(params.get('start_year', 2022))
-            end_year = int(params.get('end_year', 2050))
-        else:
-            # For standard loading, use model parameters
-            start_year = self.model_parameters.get('start_year', 2022)
-            end_year = self.model_parameters.get('end_year', 2050)
-        
+        params = self.get_model_parameters("central")
+        start_year = int(params.get('start_year', 2022))
+        end_year = int(params.get('end_year', 2050))
         return list(range(start_year, end_year + 1))
     
     def get_model_parameters(self, config: Optional[str] = None, scenario_name: Optional[str] = None) -> Dict[str, Any]:
@@ -441,10 +309,6 @@ class DataHandler:
             KeyError: If config not found or required columns missing
             ValueError: If model_parameters_data is not loaded
         """
-        if not self.use_config_loading:
-            return self.model_parameters.copy()
-
-        # For config-based loading
         if self.model_parameters_data is None or self.model_parameters_data.empty:
             raise ValueError("Model parameters data not loaded")
         
@@ -452,7 +316,7 @@ class DataHandler:
         
         # Filter for the config
         params = self.model_parameters_data[
-            self.model_parameters_data['Scenario'].str.lower() == config
+            self.model_parameters_data['Config'].str.lower() == config
         ]
         
         if params.empty:
@@ -460,59 +324,11 @@ class DataHandler:
         
         # Store in scenario-specific data if scenario_name provided
         if scenario_name is not None:
-            if not hasattr(self, 'scenario_data'):
-                self.scenario_data = {}
-            self.scenario_data[('model_parameters', scenario_name, config)] = params.copy()
-        
+            if scenario_name not in self.scenario_data:
+                self.scenario_data[scenario_name] = {}
+            self.scenario_data[scenario_name]['model_params'] = params.copy()
+
         return dict(zip(params['Variable'], params['Value']))
-    
-    def get_scenario_parameters(self, config: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get scenario parameters.
-        
-        Args:
-            scenario: Name of the scenario. If None, return all scenarios.
-            
-        Returns:
-            Dictionary of scenario parameters.
-        """
-        if not self.use_config_loading:
-            # For standard loading
-            if config is not None:
-                if config in self.scenario_parameters:
-                    return self.scenario_parameters[config].copy()
-                else:
-                    raise ValueError(f"Scenario not found: {config}")
-            return self.scenario_parameters.copy()
-        else:
-            # For scenario-based loading, we don't have direct scenario parameters
-            # So we'll return a default set
-            if config is not None:
-                return {"description": f"{config} scenario"}
-            return {
-                "central": {"description": "central scenario"},
-                "1 s.e lower": {"description": "One standard error below central"},
-                "1 s.e upper": {"description": "One standard error above central"},
-                "95% Lower": {"description": "95% lower bound"},
-                "95% Upper": {"description": "95% upper bound"},
-            }
-    
-    def get_optimisation_parameters(self) -> Dict[str, Any]:
-        """
-        Get optimisation parameters.
-        
-        Returns:
-            Dictionary of optimisation parameters.
-        """
-        if not self.use_config_loading:
-            # For standard loading
-            return self.optimisation_parameters.copy()
-        else:
-            # For scenario-based loading, use default values
-            if self.optimisation_parameters is not None and not self.optimisation_parameters.empty:
-                return self.optimisation_parameters.copy()
-            else:
-                raise ValueError("Failed to load optimisation parameters")
     
     def get_auction_data(self, config: Optional[str] = None, scenario_name: Optional[str] = None) -> pd.DataFrame:
         """
@@ -556,16 +372,10 @@ class DataHandler:
         
         # Filter for the specified config
         config_lower = config.lower() if config else 'central'
-        
-        # Use the full DataFrame for config-based loading
-        if self.use_config_loading:
-            filtered_data = self.auctions_data[
-                self.auctions_data['Config'].str.lower() == config_lower
-            ]
-        else:
-            # For standard loading mode, return the simplified DataFrame
-            return self.auction_data.copy()
-        
+        filtered_data = self.auctions_data[
+            self.auctions_data['Config'].str.lower() == config_lower
+        ]
+
         if filtered_data.empty:
             available_configs = self.auctions_data['Config'].unique()
             raise KeyError(
@@ -664,16 +474,10 @@ class DataHandler:
              
         # Filter for the specified config
         config_lower = config.lower() if config else 'central'
-        
-        # Use the full DataFrame for config-based loading
-        if self.use_config_loading:
-            filtered_data = self.industrial_allocation_data[
-                self.industrial_allocation_data['Config'].str.lower() == config_lower
-            ]
-        else:
-            # For standard loading mode, return the simplified DataFrame
-            return self.industrial_allocation_data.copy()
-        
+        filtered_data = self.industrial_allocation_data[
+            self.industrial_allocation_data['Config'].str.lower() == config_lower
+        ]
+
         if filtered_data.empty:
             available_configs = self.industrial_allocation_data['Config'].unique()
             raise KeyError(
@@ -700,50 +504,37 @@ class DataHandler:
         
         return ia_data
     
-    def get_stockpile_parameters(self, config: Optional[str] = None, overrides: Optional[Dict[str, Any]] = None, scenario_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_stockpile_parameters(self, config: Optional[str] = None, overrides: Optional[Dict[str, Any]] = None, scenario_name: Optional[str] = None, model_start_year: Optional[int] = None) -> Dict[str, Any]:
         """
         Get stockpile parameters from stockpile balance data and model parameters.
-        
+
         Args:
             config: Configuration name (defaults to "central")
             overrides: Optional dictionary of parameter overrides
             scenario_name: If provided, get scenario-specific stockpile parameters
-                
+            model_start_year: The model's actual start year (from define_time). If provided,
+                this is used for stockpile_usage_start_year and stockpile_reference_year
+                instead of the value in model_parameters.csv.
+
         Returns:
             Dictionary of stockpile parameters
-                
+
         Raises:
             ValueError: If required parameters are missing or cannot be loaded
         """
         # Check if we have scenario-specific data first
-        if scenario_name is not None and hasattr(self, 'scenario_data'):
-            # Look for this specific scenario+config combination
-            key = ('stockpile_parameters', scenario_name, config)
-            if key in self.scenario_data:
-                result = self.scenario_data[key].copy()
+        if scenario_name is not None and scenario_name in self.scenario_data:
+            if 'stockpile' in self.scenario_data[scenario_name]:
+                result = self.scenario_data[scenario_name]['stockpile'].copy()
                 # Apply overrides if provided
                 if overrides:
                     for param, value in overrides.items():
-                        if value is not None:  # Only override if value is not None
-                            result[param] = value
-                return result
-            
-            # Also check just by scenario name in case config wasn't stored
-            scenario_keys = [k for k in self.scenario_data.keys() 
-                           if isinstance(k, tuple) and 
-                           k[0] == 'stockpile_parameters' and 
-                           k[1] == scenario_name]
-            if scenario_keys:
-                result = self.scenario_data[scenario_keys[0]].copy()
-                # Apply overrides if provided
-                if overrides:
-                    for param, value in overrides.items():
-                        if value is not None:  # Only override if value is not None
+                        if value is not None:
                             result[param] = value
                 return result
         
-        # Get model parameters for non-stockpile values
-        params = self.get_model_parameters(config, scenario_name)
+        # Get model parameters for non-stockpile values (model_parameters.csv only has 'central')
+        params = self.get_model_parameters('central', scenario_name)
         
         # Get stockpile balance data for the config
         try:
@@ -766,8 +557,8 @@ class DataHandler:
                 else:
                     raise ValueError("No stockpile balance data found for any configuration")
             
-            # Get the year before start year from model parameters
-            start_year = int(params['start_year'])
+            # Use model_start_year if provided (from define_time), otherwise fall back to CSV value
+            start_year = model_start_year if model_start_year is not None else int(params['start_year'])
             target_year = start_year - 1
             
             # Get data for target year
@@ -791,34 +582,33 @@ class DataHandler:
         except (ValueError, KeyError, IndexError) as e:
             raise ValueError(f"Failed to load stockpile balance data: {e}")
         
-        # Map CSV names to return names
+        # Map CSV names to return names (start_year excluded — driven by model_start_year)
         param_mapping = {
             'liquidity_factor': 'liquidity_factor',
             'payback_years': 'payback_period',
             'discount_rate': 'discount_rate',
-            'start_year': 'stockpile_usage_start_year'
         }
-        
+
         # Check required parameters exist
         missing = [p for p in param_mapping.keys() if p not in params]
         if missing:
             raise ValueError(f"Missing required parameters in model_parameters.csv: {missing}")
-        
+
         # Create return dictionary with mapped names
         result = {}
         for csv_name, return_name in param_mapping.items():
             value = params[csv_name]
-            # Convert to appropriate type
-            if csv_name in ['payback_years', 'start_year']:
-                result[return_name] = int(value)
-            else:
-                result[return_name] = float(value)
-        
+            result[return_name] = int(value) if csv_name == 'payback_years' else float(value)
+
+        # stockpile_usage_start_year comes from define_time() (via model_start_year),
+        # not from model_parameters.csv, so it respects the user-defined time window.
+        result['stockpile_usage_start_year'] = start_year
+
         # Add stockpile values
         result['initial_stockpile'] = initial_stockpile
         result['initial_surplus'] = initial_surplus
-        
-        # Add reference year
+
+        # Add reference year (year before the model start year)
         result['stockpile_reference_year'] = target_year
         
         # Apply overrides if provided
@@ -844,7 +634,7 @@ class DataHandler:
                 elif param == 'payback_period' and value <= 0:
                     raise ValueError(f"payback_period must be positive, got {value}")
                 elif param == 'stockpile_usage_start_year' and value < start_year:
-                    raise ValueError(f"stockpile_usage_start_year cannot be before model start year {start_year}")
+                    raise ValueError(f"stockpile_usage_start_year ({value}) cannot be before model start year ({start_year})")
                 
                 # Convert to appropriate type and update result
                 if param in ['payback_period', 'stockpile_usage_start_year', 'stockpile_reference_year']:
@@ -858,10 +648,10 @@ class DataHandler:
         
         # Store in scenario-specific data if scenario_name provided
         if scenario_name is not None:
-            if not hasattr(self, 'scenario_data'):
-                self.scenario_data = {}
-            self.scenario_data[('stockpile_parameters', scenario_name, config)] = result.copy()
-        
+            if scenario_name not in self.scenario_data:
+                self.scenario_data[scenario_name] = {}
+            self.scenario_data[scenario_name]['stockpile'] = result.copy()
+
         return result
 
     def get_forestry_data(self, config: Optional[str] = None, scenario_name: Optional[str] = None) -> pd.DataFrame:
@@ -932,36 +722,21 @@ class DataHandler:
             - forestry_surrender
         """
         # Check if we have scenario-specific data first
-        if scenario_name is not None and hasattr(self, 'scenario_data'):
-            # Look for this specific scenario+config combination
-            key = ('forestry_variables', scenario_name, config)
-            if key in self.scenario_data:
-                return self.scenario_data[key].copy()
-            
-            # Also check just by scenario name in case config wasn't stored
-            scenario_keys = [k for k in self.scenario_data.keys() 
-                           if isinstance(k, tuple) and 
-                           k[0] == 'forestry_variables' and 
-                           k[1] == scenario_name]
-            if scenario_keys:
-                return self.scenario_data[scenario_keys[0]].copy()
+        if scenario_name is not None and scenario_name in self.scenario_data:
+            if 'forestry_variables' in self.scenario_data[scenario_name]:
+                return self.scenario_data[scenario_name]['forestry_variables'].copy()
         
-        # Continue with normal config-based approach
-        if not self.use_config_loading or config is None:
-            if hasattr(self, 'forestry_variables') and self.forestry_variables is not None:
-                return self.forestry_variables.copy()
-            return pd.DataFrame()
-
         if self.removals_data is None or self.removals_data.empty:
             raise ValueError("Removals data not loaded")
-        
+
+        config_lower = config.lower() if config else 'central'
         # Filter for scenario
         forest_data = self.removals_data[
-            self.removals_data['Config'].str.lower() == config.lower()
+            self.removals_data['Config'].str.lower() == config_lower
         ]
         
         if forest_data.empty:
-            raise KeyError(f"No forestry data found for config '{config}'")
+            raise KeyError(f"No forestry data found for config '{config_lower}'")
         
         # Pivot the data to get variables as columns
         result_df = pd.DataFrame(index=forest_data['Year'].unique())
@@ -981,10 +756,10 @@ class DataHandler:
         
         # Store in scenario-specific data if scenario_name provided
         if scenario_name is not None:
-            if not hasattr(self, 'scenario_data'):
-                self.scenario_data = {}
-            self.scenario_data[('forestry_variables', scenario_name, config)] = result_df.copy()
-        
+            if scenario_name not in self.scenario_data:
+                self.scenario_data[scenario_name] = {}
+            self.scenario_data[scenario_name]['forestry_variables'] = result_df.copy()
+
         return result_df
     
     def get_emissions_data(self, config: Optional[str] = None, scenario_name: Optional[str] = None) -> pd.DataFrame:
@@ -1029,37 +804,25 @@ class DataHandler:
         
         # Filter for the specified config
         config_lower = config.lower() if config else 'central'
-        
-        # Use the full DataFrame for config-based loading
-        if self.use_config_loading:
-            filtered_data = self.emissions_baselines_data[
-                self.emissions_baselines_data['Config'].str.lower() == config_lower
-            ]
-            
-            if filtered_data.empty:
-                available_configs = self.emissions_baselines_data['Config'].unique()
-                raise KeyError(
-                    f"No emissions data found for config '{config}'. "
-                    f"Available configurations are: {', '.join(available_configs)}. "
-                    "Please check emissions_baselines.csv for valid configurations."
-                )
-            
-            
-            # Store scenario-specific data if scenario_name provided
-            if scenario_name is not None:
-                if scenario_name not in self.scenario_data:
-                    self.scenario_data[scenario_name] = {}
-                self.scenario_data[scenario_name]['emissions'] = filtered_data.copy()
-            
-            return filtered_data.copy()
-        else:
-            # For standard loading mode, create a DataFrame with Year and Value columns
-            emissions_data = pd.DataFrame({
-                'Year': self.emissions_data.index,
-                'Value': self.emissions_data['base_emissions'],
-                'Config': 'central'
-            })
-            return emissions_data
+        filtered_data = self.emissions_baselines_data[
+            self.emissions_baselines_data['Config'].str.lower() == config_lower
+        ]
+
+        if filtered_data.empty:
+            available_configs = self.emissions_baselines_data['Config'].unique()
+            raise KeyError(
+                f"No emissions data found for config '{config}'. "
+                f"Available configurations are: {', '.join(available_configs)}. "
+                "Please check emissions_baselines.csv for valid configurations."
+            )
+
+        # Store scenario-specific data if scenario_name provided
+        if scenario_name is not None:
+            if scenario_name not in self.scenario_data:
+                self.scenario_data[scenario_name] = {}
+            self.scenario_data[scenario_name]['emissions'] = filtered_data.copy()
+
+        return filtered_data.copy()
     
     def _map_demand_model_name(self, config: str) -> str:
         """
@@ -1101,19 +864,9 @@ class DataHandler:
             KeyError: If required parameters are missing from model_parameters.csv
         """
         # Check if we have scenario-specific data first
-        if scenario_name is not None and hasattr(self, 'scenario_data'):
-            # Look for this specific scenario+config+model combination
-            key = ('demand_model', scenario_name, config, model_number)
-            if key in self.scenario_data:
-                return self.scenario_data[key].copy()
-            
-            # Also check just by scenario name in case config wasn't stored
-            scenario_keys = [k for k in self.scenario_data.keys() 
-                           if isinstance(k, tuple) and 
-                           k[0] == 'demand_model' and 
-                           k[1] == scenario_name]
-            if scenario_keys:
-                return self.scenario_data[scenario_keys[0]].copy()
+        if scenario_name is not None and scenario_name in self.scenario_data:
+            if 'demand_model' in self.scenario_data[scenario_name]:
+                return self.scenario_data[scenario_name]['demand_model'].copy()
         
         # Load from demand_models.csv
         file_path = self.demand_dir / "demand_models.csv"
@@ -1137,8 +890,8 @@ class DataHandler:
         # Add model number to parameters
         model_params['model_number'] = model_number
         
-        # Load and add required parameters from model_parameters.csv
-        model_params_data = self.get_model_parameters(config, scenario_name)
+        # Load and add required parameters from model_parameters.csv (only has 'central')
+        model_params_data = self.get_model_parameters('central', scenario_name)
         
         # Required parameters and their CSV names
         param_mappings = {
@@ -1159,10 +912,10 @@ class DataHandler:
         
         # Store in scenario-specific data if scenario_name provided
         if scenario_name is not None:
-            if not hasattr(self, 'scenario_data'):
-                self.scenario_data = {}
-            self.scenario_data[('demand_model', scenario_name, config, model_number)] = model_params.copy()
-        
+            if scenario_name not in self.scenario_data:
+                self.scenario_data[scenario_name] = {}
+            self.scenario_data[scenario_name]['demand_model'] = model_params.copy()
+
         return model_params
             
     
@@ -1200,92 +953,12 @@ class DataHandler:
                 similar_cols = [col for col in data.columns if 'config' in col.lower()]
                 if similar_cols:
                     return sorted(data[similar_cols[0]].unique().tolist())
-                return ['central']  # Default to central if no configs found
+                return []
         except Exception as e:
             print(f"Warning: Error getting configs for {component_type}: {e}")
-            return ['central']  # Default to central on error
+            return []
 
     def get_historical_data(self, variable: str, nominal: bool = False) -> Optional[pd.Series]:
         """Get historical data for a variable."""
         return self.historical_manager.get_historical_data(variable, nominal)
 
-    def get_stockpile_start_values(self, year: int, config: str = 'central') -> Dict[str, float]:
-        """Get stockpile start values for a given year and config."""
-        try:
-            file_path = self.stockpile_dir / "stockpile_start.csv"
-            if not file_path.exists():
-                print(f"Warning: Stockpile start data file not found: {file_path}")
-                return {}
-            
-            df = pd.read_csv(file_path)
-            year_data = df[df['Year'] == year]
-            if year_data.empty:
-                return {}
-            
-            config_data = year_data[year_data['Config'] == config]
-            if config_data.empty:
-                return {}
-            
-            return {
-                'stockpile': float(config_data['Stockpile'].iloc[0]),
-                'surplus': float(config_data['Surplus'].iloc[0])
-            }
-        except Exception as e:
-            print(f"Warning: Error reading stockpile start values: {e}")
-            return {}
-
-    def show_config_values(self, component_type: str, config: str = 'central') -> Dict[str, Any]:
-        """
-        Show current parameter values for a specific component and configuration.
-        
-        Args:
-            component_type: Type of component ('stockpile', 'auction', 'industrial', 'forestry', 'demand')
-            config: Configuration name (defaults to 'central')
-            
-        Returns:
-            Dictionary of current parameter values, with each value annotated as either:
-            - A single value (parameter)
-            - A pandas Series (time series)
-        """
-        try:
-            if component_type == 'stockpile':
-                values = self.get_stockpile_parameters(config)
-                # Get parameter types from list_adjustable_parameters
-                param_types = self.list_adjustable_parameters('stockpile')
-                # Return values with correct type annotations
-                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
-                       for k, v in values.items() if k in param_types}
-            elif component_type == 'auction':
-                values = self.get_auction_data(config)
-                # Get parameter types from list_adjustable_parameters
-                param_types = self.list_adjustable_parameters('auction')
-                # First row contains parameter values
-                params = {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
-                         for k, v in values.iloc[0].items() if k in param_types}
-                # Add series data
-                series = {k: {'value': values[k], 'type': 'series', 'category': 'input'} 
-                         for k in values.columns if k not in param_types}
-                return {**params, **series}
-            elif component_type == 'industrial':
-                values = self.get_industrial_allocation_data(config)
-                # Get parameter types from list_adjustable_parameters
-                param_types = self.list_adjustable_parameters('industrial')
-                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
-                       for k, v in values.items() if k in param_types}
-            elif component_type == 'forestry':
-                values = self.get_forestry_data(config)
-                # Get parameter types from list_adjustable_parameters
-                param_types = self.list_adjustable_parameters('forestry')
-                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
-                       for k, v in values.items() if k in param_types}
-            elif component_type == 'demand':
-                values = self.get_demand_model(config)
-                # Get parameter types from list_adjustable_parameters
-                param_types = self.list_adjustable_parameters('demand')
-                return {k: {'value': v, 'type': param_types[k]['type'], 'category': param_types[k]['category']} 
-                       for k, v in values.items() if k in param_types}
-            else:
-                raise ValueError(f"Invalid component type: {component_type}")
-        except Exception as e:
-            print(f"Warning: Could not get values for {component_type} config '{config}': {e}")
-            return {}

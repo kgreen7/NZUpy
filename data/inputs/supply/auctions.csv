@@ -1,6 +1,6 @@
-Year,Config,Variable,Value,Metadata:
+Year,Config,Variable,Value,Notes:
 2020,central,auction_volume,0,"Auction reserve & CCR prices in 2023$, from MfE ETS Model. Will be lower than published regulatory figures which include inflation effect"
-2021,central,auction_volume,"19,300",
+2021,central,auction_volume,"19,300",Updated to reflect Nov 2025 MfE NZ ETS model release
 2022,central,auction_volume,"19,957",
 2023,central,auction_volume,0,
 2024,central,auction_volume,7006.8,

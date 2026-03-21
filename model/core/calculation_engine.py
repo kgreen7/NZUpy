@@ -1,5 +1,5 @@
 """
-Calculation engine for NZUpy.
+Calculation engine for NZUpy Model.
 
 This module provides the calculation functions for prices, supply, demand, and
 stockpile dynamics.
@@ -40,9 +40,9 @@ class CalculationEngine:
         Returns:
             Total weighted gap between supply and demand across all years
         """
-        if self.model.config.optimiser.debug:
+        if self.model.config.debug:
             print(f"\nCalculating gap for price_change_rate={price_change_rate:.6f}")
-            print(f"Max iterations for convergence: {self.model.config.optimiser.max_iterations}")
+            print(f"Max iterations for convergence: {self.model.config.max_iterations}")
         
         # Store the price change rate
         self.model.price_change_rate = float(price_change_rate)
@@ -62,10 +62,10 @@ class CalculationEngine:
         
         # Calculate final gap measure
         gap = self._calculate_total_gap(
-            penalise_shortfalls=self.model.config.optimiser.penalise_shortfalls
+            penalise_shortfalls=self.model.config.penalise_shortfalls
         )
         
-        if self.model.config.optimiser.debug:
+        if self.model.config.debug:
             self._log_gap_calculation_results(gap)
                 
         return gap
@@ -78,7 +78,7 @@ class CalculationEngine:
             Dictionary with iteration tracking data
         """
         return {
-            'max_iterations': self.model.config.optimiser.max_iterations,
+            'max_iterations': self.model.config.max_iterations,
             'converged': False,
             'iteration': 0,
             'stockpile_usage': pd.Series(0.0, index=self.model.years)
@@ -380,8 +380,8 @@ class CalculationEngine:
                 if control_value is not None:
                     return control_value
         
-        # Default fallback (lowest priority)
-        return 1.0 # TODO: Figure out how to remove fallback here without breaking model
+        # No price control configured — return neutral value (1.0 = apply rate as-is)
+        return 1.0
 
     def _apply_price_constraints(self, year: int, min_price: Optional[float], max_price: Optional[float]):
         """
@@ -683,7 +683,7 @@ class CalculationEngine:
         self.model.price_response_results = price_response_results
         self.model.emissions_results = emissions_results
     
-    def _calculate_total_gap(self, penalise_shortfalls: bool = True) -> float:
+    def _calculate_total_gap(self, penalise_shortfalls: bool = False) -> float:
         """
         Calculate the total gap between supply and demand across all years.
         

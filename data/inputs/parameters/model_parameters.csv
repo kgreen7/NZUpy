@@ -1,7 +1,7 @@
 Variable,Config,Value,Metadata
 discount_rate,central,0.05,Discount rate used by emitters
 payback_years,central,25,Number of years until non-surplus units used are paid back
-start_year,central,2024,Start year for optimisation window
+start_year,central,2025,Start year for optimisation window
 end_year,central,2050,End year for optimisation window
 long_term_min,central,50,Long-term deminimus price (reflects long-run marginal cost for forestry)
 long_term_max,central,na,"Long-term max price (not set, but functionality allows for value to be set)"

@@ -65,23 +65,26 @@ class StockpileSupply:
         self.extended_years = extended_years or []
         stockpile_params = stockpile_params or {}
         
-        # Remove default fallback values and require parameters to be provided
-        self.liquidity_factor = liquidity_factor or stockpile_params.get('liquidity_factor')
-        if self.liquidity_factor is None:
-            raise ValueError("liquidity_factor must be provided either directly or via stockpile_params")
-        
+        def _require(name, override, params):
+            """Get a required parameter from override or params dict; raise clearly if missing."""
+            val = override if override is not None else params.get(name)
+            if val is None:
+                raise ValueError(
+                    f"Required stockpile parameter '{name}' not set. "
+                    f"Call fill_defaults() or fill_component('stockpile', config=...) before running."
+                )
+            return val
+
+        self.liquidity_factor = _require('liquidity_factor', liquidity_factor, stockpile_params)
         if not 0 <= self.liquidity_factor <= 1:
             raise ValueError(f"liquidity_factor must be between 0 and 1, got {self.liquidity_factor}")
-        
-        # Set the initial stockpile and surplus (year-end values)
-        self.initial_stockpile = initial_stockpile or stockpile_params.get('initial_stockpile', 159902)
-        self.initial_surplus = initial_surplus or stockpile_params.get('initial_surplus', 67300)
-        self.payback_period = payback_period or stockpile_params.get('payback_period', 15)
-        self.discount_rate = discount_rate or stockpile_params.get('discount_rate', 0.05)
-        
-        # Set reference and usage start years with proper defaults
-        self.stockpile_reference_year = stockpile_reference_year or stockpile_params.get('stockpile_reference_year', 2023)
-        self.stockpile_usage_start_year = stockpile_usage_start_year or stockpile_params.get('stockpile_usage_start_year', 2024)
+
+        self.initial_stockpile = _require('initial_stockpile', initial_stockpile, stockpile_params)
+        self.initial_surplus   = _require('initial_surplus',   initial_surplus,   stockpile_params)
+        self.payback_period    = _require('payback_period',    payback_period,    stockpile_params)
+        self.discount_rate     = _require('discount_rate',     discount_rate,     stockpile_params)
+        self.stockpile_reference_year   = _require('stockpile_reference_year',   stockpile_reference_year,   stockpile_params)
+        self.stockpile_usage_start_year = _require('stockpile_usage_start_year', stockpile_usage_start_year, stockpile_params)
         
         # Validate the years make sense
         if self.stockpile_reference_year >= self.stockpile_usage_start_year:
@@ -138,7 +141,6 @@ class StockpileSupply:
                 'liquid_stockpile', 'other_stockpile', 'available_units',
                 'surplus_used', 'non_surplus_used', 'borrowed_units', 'payback_units', 'net_change',
                 'forestry_held_addition', 'forestry_surrender_addition', 'cumulative_forestry_additions',
-                'stockpile_without_forestry'
             ],
             data=0.0
         )
@@ -182,9 +184,6 @@ class StockpileSupply:
                     if prices[prev_year] > 0:  # Avoid division by zero
                         price_change_rates[year] = (prices[year] / prices[prev_year]) - 1
         
-        # Initialise stockpile without forestry to track separately
-        stockpile_without_forestry = pd.Series(0.0, index=self.years)
-        
         # Process each year
         for i, year in enumerate(self.years):
             # Skip years before stockpile_usage_start_year
@@ -201,7 +200,6 @@ class StockpileSupply:
                 self.results.loc[year, 'non_surplus_used'] = 0
                 self.results.loc[year, 'forestry_held_addition'] = 0
                 self.results.loc[year, 'forestry_surrender_addition'] = 0
-                stockpile_without_forestry[year] = self.stockpile_balance[year]
                 continue
             
             # Get previous year's balances for liquidity calculations
@@ -213,7 +211,6 @@ class StockpileSupply:
                 # Explicitly ensure the values are set correctly
                 self.stockpile_balance[year] = self.initial_stockpile
                 self.surplus_balance[year] = self.initial_surplus
-                stockpile_without_forestry[year] = self.stockpile_balance[year]
                 # Update prev_non_surplus for first year of usage
                 prev_non_surplus = max(0, self.initial_stockpile - self.initial_surplus)
             # Copy previous year's balance for years after stockpile_usage_start_year
@@ -221,7 +218,6 @@ class StockpileSupply:
                 prev_year = self.years[i-1]
                 self.stockpile_balance[year] = self.stockpile_balance[prev_year]
                 self.surplus_balance[year] = self.surplus_balance[prev_year]
-                stockpile_without_forestry[year] = stockpile_without_forestry[prev_year]
             
             # Process forestry additions
             forestry_held_addition = 0.0
@@ -229,15 +225,15 @@ class StockpileSupply:
             
             if track_forestry_impact and self.forestry_variables is not None and year in self.forestry_variables.index:
                 try:
-                    forestry_held = self.forestry_variables.loc[year, ('central', 'forestry_held')]
+                    forestry_held = self.forestry_variables.loc[year, 'forestry_held']
                     if not pd.isna(forestry_held) and forestry_held > 0:
                         forestry_held_addition = forestry_held
                         self.stockpile_balance[year] += forestry_held_addition
                 except:
                     pass
-                
+
                 try:
-                    forestry_surrender = self.forestry_variables.loc[year, ('central', 'forestry_surrender')]
+                    forestry_surrender = self.forestry_variables.loc[year, 'forestry_surrender']
                     if not pd.isna(forestry_surrender):
                         forestry_surrender_addition = forestry_surrender
                         self.stockpile_balance[year] += forestry_surrender_addition
@@ -258,7 +254,6 @@ class StockpileSupply:
                 surplus_used = min(shortfall, self.surplus_balance[year])
                 self.surplus_balance[year] -= surplus_used
                 self.stockpile_balance[year] -= surplus_used
-                stockpile_without_forestry[year] -= surplus_used
                 shortfall -= surplus_used
                 
                 # For non-surplus stockpile, check discount rate condition
@@ -283,7 +278,6 @@ class StockpileSupply:
                     
                     # Update balances
                     self.stockpile_balance[year] -= non_surplus_used
-                    stockpile_without_forestry[year] -= non_surplus_used
                     
                     # Record borrowing for future payback
                     payback_year = year + self.payback_period
@@ -306,7 +300,6 @@ class StockpileSupply:
                 # Update both balances
                 self.stockpile_balance[year] += balance
                 self.surplus_balance[year] += surplus_portion
-                stockpile_without_forestry[year] += balance
             
             # Calculate current year's balances for reporting
             current_non_surplus = max(0, self.stockpile_balance[year] - self.surplus_balance[year])
@@ -353,9 +346,6 @@ class StockpileSupply:
             # Store cumulative forestry additions for reference
             self.results['cumulative_forestry_additions'] = cumulative_held + cumulative_surrender
             
-            # Store stockpile without forestry
-            self.results['stockpile_without_forestry'] = stockpile_without_forestry
-        
         return self.results
     
     def set_forestry_variables(self, forestry_variables: pd.DataFrame) -> None:

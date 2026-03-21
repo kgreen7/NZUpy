@@ -1,5 +1,5 @@
 """
-Model runner for NZ ETS Supply-Demand Model.
+Model runner for NZUpy Model.
 
 This module provides functionality for running the model, including
 optimisation, scenario runs, and result formatting.
@@ -38,7 +38,7 @@ class ModelRunner:
         """
         # For Range scenario type, ensure scenarios are properly configured
         if hasattr(self.model, 'scenario_type') and self.model.scenario_type == 'Range':
-            self.model.configure_range_scenarios()
+            self.model.scenario_manager.configure_range_scenarios()
         
         # Use existing run logic
         if not self.model.validate():
@@ -192,7 +192,7 @@ class ModelRunner:
         model_results = self._compile_model_results(gap, run_data['iteration'])
         
         # Debug output if enabled
-        if self.model.config.optimiser.debug:
+        if self.model.config.debug:
             self._print_model_results_summary(gap)
             
         return model_results
@@ -206,7 +206,7 @@ class ModelRunner:
         """
         # Initialise iteration variables
         run_data = {
-            'max_iterations': self.model.config.optimiser.max_iterations,
+            'max_iterations': self.model.config.max_iterations,
             'converged': False,
             'iteration': 0,
             'stockpile_usage': pd.Series(0.0, index=self.model.years)
@@ -383,6 +383,20 @@ class ModelRunner:
             'auction_results': self.model.auction_results.copy(),
             'industrial_results': self.model.industrial_results.copy(),
             'stockpile_results': stockpile_results.copy(),
+            'stockpile_reference_year': (
+                self.model.stockpile.stockpile_reference_year
+                if hasattr(self.model.stockpile, 'stockpile_reference_year') else None
+            ),
+            'stockpile_initial_values': (
+                {
+                    'balance': self.model.stockpile.initial_stockpile,
+                    'surplus_balance': self.model.stockpile.initial_surplus,
+                    'non_surplus_balance': (
+                        self.model.stockpile.initial_stockpile - self.model.stockpile.initial_surplus
+                    ),
+                }
+                if hasattr(self.model.stockpile, 'initial_stockpile') else None
+            ),
             'forestry_results': self.model.forestry_results.copy(),
             'price_response_results': self.model.price_response_results.copy(),
             'emissions_results': self.model.emissions_results.copy(),
@@ -405,41 +419,6 @@ class ModelRunner:
         print(f"  Total gap: {gap:,.0f}")
         print(f"  Supply-Demand balance: {(self.model.supply['total'] - self.model.demand).sum():,.0f}\n")
     
-    def run_scenarios(self, scenarios: List[str]) -> Dict[str, Dict[str, Any]]:
-        """
-        Run the model for multiple scenarios.
-        
-        Args:
-            scenarios: List of scenarios to run.
-                Options: "central", "1 s.e lower", "1 s.e upper", "95% Lower", "95% Upper"
-        
-        Returns:
-            Dict mapping scenarios to their results.
-        """
-        scenario_results = {}
-        
-        # Save original scenario
-        original_scenario = self.model.config.scenario
-        
-        # Run each scenario
-        for scenario in scenarios:
-            # Set scenario
-            self.model.config.scenario = scenario
-            self.model.emissions.set_scenario(scenario)
-            
-            # Run model
-            results = self.run_model()
-            
-            # Store results
-            scenario_results[scenario] = results
-        
-        # Restore original scenario
-        self.model.config.scenario = original_scenario
-        self.model.emissions.set_scenario(original_scenario)
-        
-        return scenario_results
-
-
     def _run_scenario(self, scenario_index: int, scenario_name: str) -> Dict[str, Any]:
         """
         Run a single scenario.
@@ -500,10 +479,10 @@ class ModelRunner:
         """
         return FastSolveOptimiser(
             gap_function=self.model.calculation_engine.calculate_gap,
-            coarse_step=self.model.config.optimiser.coarse_step,
-            fine_step=self.model.config.optimiser.fine_step,
-            max_rate=self.model.config.optimiser.max_rate,
-            debug=self.model.config.optimiser.debug
+            coarse_step=self.model.config.coarse_step,
+            fine_step=self.model.config.fine_step,
+            max_rate=self.model.config.max_rate,
+            debug=self.model.config.debug
         )
     
     def _compile_optimisation_results(self, 

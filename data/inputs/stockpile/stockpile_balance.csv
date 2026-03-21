@@ -16,17 +16,25 @@ central,stockpile,2022,164330,Kt CO2-e / 000 NZUs,CCC surplus but override stock
 central,surplus,2023,68100,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 central,stockpile,2023,159902,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 central,stockpile,2024,150388,Kt CO2-e / 000 NZUs,EPA year-end 2024
+central,surplus,2024,55800,Kt CO2-e / 000 NZUs,MfE NZ ETS excel model release
+central,stockpile,2025,135856,Kt CO2-e / 000 NZUs,EPA year-end 2025
+central,surplus,2025,45495,Kt CO2-e / 000 NZUs,Author's calculation
 low,surplus,2022,33278,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 low,stockpile,2022,164330,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 low,surplus,2023,51100,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 low,stockpile,2023,159902,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
-low,surplus,2024,35600,Kt CO2-e / 000 NZUs,EY mid-2024 estimate for low
+low,surplus,2024,28413,Kt CO2-e / 000 NZUs,CCC 2025 advice
 low,stockpile,2024,150388,Kt CO2-e / 000 NZUs,EPA year-end 2024
+low,stockpile,2025,135856,Kt CO2-e / 000 NZUs,EPA year-end 2025
+low,surplus,2025,18108,Kt CO2-e / 000 NZUs,Author's calculation
 high,surplus,2022,66428,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 high,stockpile,2022,164330,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 high,surplus,2023,84300,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 high,stockpile,2023,159902,Kt CO2-e / 000 NZUs,CCC surplus but override stockpile to year-end stockpile from EPA
 high,stockpile,2024,150388,Kt CO2-e / 000 NZUs,EPA year-end 2024
+high,surplus,2024,67711,Kt CO2-e / 000 NZUs,CCC 2025 advice
+high,stockpile,2025,135856,Kt CO2-e / 000 NZUs,EPA year-end 2025
+high,surplus,2025,57406,Kt CO2-e / 000 NZUs,Author's calculation
 MFE24_central,surplus,2023,67300,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
 MFE24_central,stockpile,2023,159902,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE
 MFE24_low,surplus,2023,46800,Kt CO2-e / 000 NZUs,EY Sep-24 advice to MfE

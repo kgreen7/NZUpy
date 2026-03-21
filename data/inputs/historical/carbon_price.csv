@@ -1,6 +1,7 @@
-Year,Value
-2020,25
-2021,35
-2022,79
-2023,63
-2024,62
+Year,Value,Source,Units
+2020,25,MfE NZ ETS excel model,2023 NZD per t CO2-e
+2021,55,MfE NZ ETS excel model,2023 NZD per t CO2-e
+2022,84,MfE NZ ETS excel model,2023 NZD per t CO2-e
+2023,63,MfE NZ ETS excel model,2023 NZD per t CO2-e
+2024,62,MfE NZ ETS excel model,2023 NZD per t CO2-e
+2025,52,Average from https://github.com/theecanmole/nzu/blob/master/nzu-month-price.csv deflated from 2025 to 2023 NZD,2023 NZD per t CO2-e
