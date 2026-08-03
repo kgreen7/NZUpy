@@ -278,8 +278,14 @@ class NZUpy:
         'manley_LUC_limit': 'forestry',
         'forestry_discount_rate': 'forestry',
         'forestry_forward_years': 'forestry',
-        # Industrial
+        # Industrial (fixed mode)
         'baseline_allocation': 'industrial',
+        # Industrial (calculated mode)
+        'industrial_mode': 'industrial',
+        'industrial_base_output': 'industrial',
+        'industrial_phase_down_rates': 'industrial',
+        'industrial_output_reduction': 'industrial',
+        'industrial_other_adjustments': 'industrial',
         # Emissions
         'emissions_baseline': 'emissions',
         # Demand model
@@ -305,6 +311,7 @@ class NZUpy:
     # Mode switches: name → tuple of valid values
     _MODE_OPTIONS = {
         'forestry_mode':             ('exogenous', 'endogenous'),
+        'industrial_mode':           ('calculated', 'fixed'),
         'pricing_mode':              ('optimised', 'fixed_path', 'fixed_rate'),
         'penalise_shortfalls':       (True, False),
         'manley_sensitivity':        ('low', 'central', 'high'),

@@ -118,10 +118,27 @@ class DataHandler:
             if auctions_file.exists():
                 self.auctions_data = self._load_csv(auctions_file)
             
-            # Load industrial allocation data
+            # Load industrial allocation data (fixed mode)
             industrial_file = self.supply_dir / "industrial_allocation.csv"
             if industrial_file.exists():
                 self.industrial_allocation_data = self._load_csv(industrial_file)
+
+            # Load industrial allocation calculated-mode data
+            industrial_base_output_file = self.supply_dir / "industrial_base_output.csv"
+            if industrial_base_output_file.exists():
+                self.industrial_base_output_data = self._load_csv(industrial_base_output_file)
+
+            industrial_phase_down_file = self.supply_dir / "industrial_phase_down_rates.csv"
+            if industrial_phase_down_file.exists():
+                self.industrial_phase_down_rates_data = self._load_csv(industrial_phase_down_file)
+
+            industrial_output_reduction_file = self.supply_dir / "industrial_output_reduction.csv"
+            if industrial_output_reduction_file.exists():
+                self.industrial_output_reduction_data = self._load_csv(industrial_output_reduction_file)
+
+            industrial_other_adjustments_file = self.supply_dir / "industrial_other_adjustments.csv"
+            if industrial_other_adjustments_file.exists():
+                self.industrial_other_adjustments_data = self._load_csv(industrial_other_adjustments_file)
             
             # Load stockpile balance data
             stockpile_file = self.stockpile_dir / "stockpile_balance.csv"
@@ -538,7 +555,139 @@ class DataHandler:
             self.scenario_data[scenario_name]['industrial'] = ia_data.copy()
         
         return ia_data
-    
+
+    def get_industrial_base_output(self, config: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get industrial base output data for calculated mode.
+
+        Returns DataFrame with columns: Sector, Category, BaseOutput
+        Filtered by config name.
+
+        Args:
+            config: Configuration name (default: 'central')
+
+        Returns:
+            DataFrame with base output by sector for specified config.
+        """
+        if not hasattr(self, 'industrial_base_output_data') or self.industrial_base_output_data is None:
+            raise ValueError(
+                "Industrial base output data not loaded. "
+                "Ensure industrial_base_output.csv exists in the supply directory."
+            )
+
+        config_lower = config.lower() if config else 'central'
+        filtered = self.industrial_base_output_data[
+            self.industrial_base_output_data['Config'].str.lower() == config_lower
+        ]
+
+        if filtered.empty:
+            available = self.industrial_base_output_data['Config'].unique()
+            raise KeyError(
+                f"No industrial base output data found for config '{config}'. "
+                f"Available: {', '.join(available)}"
+            )
+
+        return filtered[['Sector', 'Category', 'BaseOutput']].copy()
+
+    def get_industrial_phase_down_rates(self, config: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get industrial phase-down rates for calculated mode.
+
+        Returns DataFrame with columns: Year, Category, Rate
+        Filtered by config name.
+
+        Args:
+            config: Configuration name (default: 'central')
+
+        Returns:
+            DataFrame with phase-down rates by year and category.
+        """
+        if not hasattr(self, 'industrial_phase_down_rates_data') or self.industrial_phase_down_rates_data is None:
+            raise ValueError(
+                "Industrial phase-down rates data not loaded. "
+                "Ensure industrial_phase_down_rates.csv exists in the supply directory."
+            )
+
+        config_lower = config.lower() if config else 'central'
+        filtered = self.industrial_phase_down_rates_data[
+            self.industrial_phase_down_rates_data['Config'].str.lower() == config_lower
+        ]
+
+        if filtered.empty:
+            available = self.industrial_phase_down_rates_data['Config'].unique()
+            raise KeyError(
+                f"No industrial phase-down rates found for config '{config}'. "
+                f"Available: {', '.join(available)}"
+            )
+
+        return filtered[['Year', 'Category', 'Rate']].copy()
+
+    def get_industrial_output_reduction(self, config: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get industrial output reduction factors for calculated mode.
+
+        Returns DataFrame with columns: Year, Sector, Factor (0-1)
+        Filtered by config name.
+
+        Args:
+            config: Configuration name (default: 'central')
+
+        Returns:
+            DataFrame with output reduction/closure assumptions by year and sector.
+        """
+        if not hasattr(self, 'industrial_output_reduction_data') or self.industrial_output_reduction_data is None:
+            raise ValueError(
+                "Industrial output reduction data not loaded. "
+                "Ensure industrial_output_reduction.csv exists in the supply directory."
+            )
+
+        config_lower = config.lower() if config else 'central'
+        filtered = self.industrial_output_reduction_data[
+            self.industrial_output_reduction_data['Config'].str.lower() == config_lower
+        ]
+
+        if filtered.empty:
+            available = self.industrial_output_reduction_data['Config'].unique()
+            raise KeyError(
+                f"No industrial output reduction data found for config '{config}'. "
+                f"Available: {', '.join(available)}"
+            )
+
+        return filtered[['Year', 'Sector', 'Factor']].copy()
+
+    def get_industrial_other_adjustments(self, config: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get industrial other adjustments for calculated mode.
+
+        Returns DataFrame with columns: Year, Sector, Amount
+        Filtered by config name.
+
+        Args:
+            config: Configuration name (default: 'central')
+
+        Returns:
+            DataFrame with other adjustments (e.g., Aluminium contract) by year and sector.
+        """
+        if not hasattr(self, 'industrial_other_adjustments_data') or self.industrial_other_adjustments_data is None:
+            raise ValueError(
+                "Industrial other adjustments data not loaded. "
+                "Ensure industrial_other_adjustments.csv exists in the supply directory."
+            )
+
+        config_lower = config.lower() if config else 'central'
+        filtered = self.industrial_other_adjustments_data[
+            self.industrial_other_adjustments_data['Config'].str.lower() == config_lower
+        ]
+
+        if filtered.empty:
+            available = self.industrial_other_adjustments_data['Config'].unique()
+            raise KeyError(
+                f"No industrial other adjustments data found for config '{config}'. "
+                f"Available: {', '.join(available)}"
+            )
+
+        return filtered[['Year', 'Sector', 'Amount']].copy()
+
     def get_stockpile_parameters(self, config: Optional[str] = None, overrides: Optional[Dict[str, Any]] = None, scenario_name: Optional[str] = None, model_start_year: Optional[int] = None) -> Dict[str, Any]:
         """
         Get stockpile parameters from stockpile balance data and model parameters.

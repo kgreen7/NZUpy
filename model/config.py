@@ -75,6 +75,9 @@ class ComponentConfig:
     manley_sensitivity: str = 'central'          # 'low', 'central', 'high' — selects f and LMV
     forestry_price_assumption: str = 'future'    # 'future' or 'current'
 
+    # Industrial allocation mode settings
+    industrial_mode: str = 'calculated'         # 'calculated' or 'fixed'
+
     # Manley parameter overrides (None = use CSV value)
     manley_f: Optional[float] = None
     manley_LMV: Optional[float] = None
