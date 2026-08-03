@@ -274,7 +274,11 @@ class ScenarioManager:
                     f"Failed to load historical_removals for config '{component_config.forestry}': {e}"
                 )
             try:
-                yield_increments = self.model.data_handler.get_yield_increments()
+                # Use manley_sensitivity config for yield blend weights (large/small forest)
+                manley_sensitivity = getattr(component_config, 'manley_sensitivity', 'central')
+                yield_increments = self.model.data_handler.get_yield_increments(
+                    config=manley_sensitivity
+                )
             except Exception as e:
                 raise ValueError(f"Failed to load yield increments: {e}")
             try:

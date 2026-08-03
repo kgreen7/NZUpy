@@ -169,13 +169,9 @@ class DataHandler:
         file_path = self.forestry_dir / "yield_tables.csv"
         if file_path.exists():
             self.yield_tables_data = self._load_csv(file_path)
-            # Pre-compute annual yield increments for each forest type.
-            # np.diff(cumulative, prepend=0) gives: increment[0] = cumulative[0],
-            # increment[i] = cumulative[i] - cumulative[i-1] for i > 0.
-            self.yield_increments = {}
-            for forest_type in ['permanent_exotic', 'production_exotic', 'natural_forest']:
-                cumulative = self.yield_tables_data[forest_type].values.astype(float)
-                self.yield_increments[forest_type] = np.diff(cumulative, prepend=0)
+            # Yield increments will be computed on-demand in get_yield_increments()
+            # to allow for blending based on manley_parameters weights
+            self.yield_increments = None
 
     def _load_afforestation_projections(self):
         file_path = self.forestry_dir / "afforestation_projections.csv"
@@ -229,14 +225,46 @@ class DataHandler:
         df = df / 1000.0
         return df
 
-    def get_yield_increments(self) -> Dict[str, Any]:
-        """Return pre-computed annual yield increments dict {forest_type: np.array}."""
-        if self.yield_increments is None:
+    def get_yield_increments(self, config: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Compute and return annual yield increments blended from large/small forest yields.
+
+        Matches Excel New Forest Abs sheet: 80%/20% large/small yield blend by default.
+        Weights can be overridden via manley_parameters.csv.
+
+        Returns dict {forest_type: np.array of annual increments}.
+        """
+        if self.yield_tables_data is None:
             raise ValueError(
-                "Yield increments not computed. "
+                "Yield tables data not loaded. "
                 "Ensure yield_tables.csv exists in the forestry directory."
             )
-        return {k: v.copy() for k, v in self.yield_increments.items()}
+
+        # Get blend weights from manley parameters
+        manley_params = self.get_manley_parameters(config)
+        large_weight = manley_params.get('large_forest_weight', 0.8)
+        small_weight = manley_params.get('small_forest_weight', 0.2)
+
+        # Compute blended yield increments for each forest type
+        # Matches Excel New Forest Abs!AA10 onward: 80%/20% large/small yield blend
+        result = {}
+        for forest_type in ['permanent_exotic', 'production_exotic', 'natural_forest']:
+            # Get cumulative yields for large and small forests
+            col_large = f"{forest_type}_large"
+            col_small = f"{forest_type}_small"
+
+            cumulative_large = self.yield_tables_data[col_large].values.astype(float)
+            cumulative_small = self.yield_tables_data[col_small].values.astype(float)
+
+            # Blend the cumulative yields
+            blended_cumulative = large_weight * cumulative_large + small_weight * cumulative_small
+
+            # Convert to annual increments
+            # np.diff(cumulative, prepend=0) gives: increment[0] = cumulative[0],
+            # increment[i] = cumulative[i] - cumulative[i-1] for i > 0
+            result[forest_type] = np.diff(blended_cumulative, prepend=0)
+
+        return result
 
     def get_afforestation_projections(self, config: Optional[str] = None) -> pd.DataFrame:
         """
