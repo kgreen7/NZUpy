@@ -1,7 +1,7 @@
-Year,Value,Notes
-2020,20404,From MfE NZ ETS excel model
-2021,66873,From MfE NZ ETS excel model
-2022,38467,From MfE NZ ETS excel model
-2023,9377,From MfE NZ ETS excel model
-2024,16326,From MfE NZ ETS excel model
-2025,10791,From MfE NZ ETS excel model
+Year,Value,Metadata
+2020,19440.56116,"From MfE NZ ETS excel model, sheet 'Model', column 'AX'"
+2021,66059.95148,
+2022,37966.17979,
+2023,10656.70055,
+2024,35884.72427,
+2025,35149.84443,
