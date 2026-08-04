@@ -162,14 +162,21 @@ class ForestrySupply:
 
         n = len(self.years)
 
-        # f[t]: logistic asymptote in '000 ha — always sensitivity-specific (low/central/high)
-        self._f_series = pd.Series(self.manley_f / 1000, index=self.years)
+        # f(t): logistic asymptote in '000 ha — glides linearly from max_forestry (2022)
+        # to max_forestry_2050 (2050), then holds flat for years after 2050.
+        # Matches Afforestation!row24 in Excel (does NOT vary with sensitivity).
+        start_f = self.max_forestry / 1000       # value at year 2022 (in '000 ha)
+        end_f = self.max_forestry_2050 / 1000    # value at year 2050 (in '000 ha)
 
-        # max_forestry cap[t]: separate hard cap on resultant annual planting (in ha),
-        # linearly interpolated from max_forestry (model start) to max_forestry_2050.
-        # Both default to 50,000 ha in manley_parameters.csv.
-        self._max_forestry_cap = np.linspace(
-            self.max_forestry, self.max_forestry_2050, n
+        def _f_at(year):
+            """Compute f(t) at a given year, matching Excel's 2022→2050 glide path."""
+            clamped_year = min(year, 2050)  # Excel freezes at 2050 value for later years
+            frac = (clamped_year - 2022) / (2050 - 2022)
+            return start_f - (start_f - end_f) * frac
+
+        self._f_series = pd.Series(
+            [_f_at(year) for year in self.years],
+            index=self.years,
         )
 
         # Align afforestation projections to cover at least the model years
@@ -327,13 +334,20 @@ class ForestrySupply:
         cumulative = np.cumsum(rate * 1000)
 
         # limit_factor: scale down if total would exceed max_aggregate
-        final_cumulative = cumulative[-1] if cumulative[-1] > 0 else 1.0
+        # Anchored to cumulative at year 2050 specifically (matching Excel's $AD$25 fixed reference)
+        if 2050 in self.years:
+            final_cumulative = cumulative[list(self.years).index(2050)]
+        else:
+            # Fallback if 2050 not in model year range (won't match Excel exactly)
+            final_cumulative = cumulative[-1]
+        final_cumulative = final_cumulative if final_cumulative > 0 else 1.0
         limit_factor = min(1.0, self.max_aggregate_afforestation / final_cumulative)
 
-        # Annual new planting in ha (capped at LUC_limit)
+        # Annual new planting in ha (capped at LUC_limit only)
         annual_diff = np.diff(cumulative, prepend=0)  # same as rate * 1000
-        # Apply max_forestry cap (post-logistic hard limit), then LUC_limit
-        annual_planting = np.minimum(annual_diff * limit_factor, self._max_forestry_cap)
+        # Apply limit_factor, then LUC_limit
+        # (no separate max_forestry cap — f(t) glide path already constrains the sigmoid asymptote)
+        annual_planting = annual_diff * limit_factor
         annual_planting = np.minimum(annual_planting, self.LUC_limit)
 
         annual_series = pd.Series(annual_planting, index=self.years)

@@ -49,6 +49,10 @@ class DataHandler:
         self.emissions_baselines_data = None
         self.auctions_data = None
         self.industrial_allocation_data = None
+        self.industrial_base_output_data = None
+        self.industrial_phase_down_rates_data = None
+        self.industrial_output_reduction_data = None
+        self.industrial_other_adjustments_data = None
         self.removals_data = None
         self.demand_models_data = None
         self.model_parameters_data = None

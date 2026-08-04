@@ -3,7 +3,7 @@ low,f,60000
 central,f,100000
 high,f,120000
 low,LMV,10000
-central,LMV,10000
+central,LMV,7500
 high,LMV,7500
 default,g,4844
 default,h,0.0005292
@@ -17,7 +17,7 @@ default,forestry_discount_rate,0.08
 default,forestry_forward_years,15
 default,max_forestry,50000
 default,max_forestry_2050,50000
-default,max_aggregate_afforestation,1000000000
+default,max_aggregate_afforestation,1000000
 default,price_conversion_2021,1.140449438
 default,large_forest_weight,0.8
 default,small_forest_weight,0.2
