@@ -253,6 +253,9 @@ class DataHandler:
         Matches Excel New Forest Abs sheet: 80%/20% large/small yield blend by default.
         Weights can be overridden via manley_parameters.csv.
 
+        For production_exotic (averaging forests), yields are truncated at average_age
+        (default 16 years) since forests are harvested and replanted at that age.
+
         Returns dict {forest_type: np.array of annual increments}.
         """
         if self.yield_tables_data is None:
@@ -261,10 +264,11 @@ class DataHandler:
                 "Ensure yield_tables.csv exists in the forestry directory."
             )
 
-        # Get blend weights from manley parameters
+        # Get blend weights and average_age from manley parameters
         manley_params = self.get_manley_parameters(config)
         large_weight = manley_params.get('large_forest_weight', 0.8)
         small_weight = manley_params.get('small_forest_weight', 0.2)
+        average_age = int(manley_params.get('average_age', 16))
 
         # Compute blended yield increments for each forest type
         # Matches Excel New Forest Abs!AA10 onward: 80%/20% large/small yield blend
@@ -274,8 +278,15 @@ class DataHandler:
             col_large = f"{forest_type}_large"
             col_small = f"{forest_type}_small"
 
-            cumulative_large = self.yield_tables_data[col_large].values.astype(float)
-            cumulative_small = self.yield_tables_data[col_small].values.astype(float)
+            # Get the data and drop NaN values (different forest types have different lengths)
+            cumulative_large = self.yield_tables_data[col_large].dropna().values.astype(float)
+            cumulative_small = self.yield_tables_data[col_small].dropna().values.astype(float)
+
+            # For production_exotic (averaging forests), truncate at average_age
+            # These are harvested and replanted at average_age, so only use yields up to that age
+            if forest_type == 'production_exotic':
+                cumulative_large = cumulative_large[:average_age]
+                cumulative_small = cumulative_small[:average_age]
 
             # Blend the cumulative yields
             blended_cumulative = large_weight * cumulative_large + small_weight * cumulative_small
