@@ -209,19 +209,41 @@ class ScenarioManager:
         except Exception as e:
             raise ValueError(f"Failed to load auction data for config '{component_config.auction}': {e}")
 
+        # Load industrial allocation data based on mode
+        industrial_mode = getattr(component_config, 'industrial_mode', 'calculated')
+
         try:
-            # First check if we have scenario-specific industrial allocation data
-            if (scenario_name in self.model.data_handler.scenario_data and
-                'industrial' in self.model.data_handler.scenario_data[scenario_name]):
-                ia_data = self.model.data_handler.scenario_data[scenario_name]['industrial']
-            else:
-                # Fall back to config-based data
-                ia_data = self.model.data_handler.get_industrial_allocation_data(
-                    config=component_config.industrial,
-                    scenario_name=scenario_name
+            if industrial_mode == 'fixed':
+                # Fixed mode: load single pre-computed series
+                if (scenario_name in self.model.data_handler.scenario_data and
+                    'industrial' in self.model.data_handler.scenario_data[scenario_name]):
+                    ia_data = self.model.data_handler.scenario_data[scenario_name]['industrial']
+                else:
+                    ia_data = self.model.data_handler.get_industrial_allocation_data(
+                        config=component_config.industrial,
+                        scenario_name=scenario_name
+                    )
+                industrial_base_output = None
+                industrial_phase_down_rates = None
+                industrial_output_reduction = None
+                industrial_other_adjustments = None
+            else:  # calculated mode
+                # Calculated mode: load sector-level assumptions
+                ia_data = None
+                industrial_base_output = self.model.data_handler.get_industrial_base_output(
+                    config=component_config.industrial
+                )
+                industrial_phase_down_rates = self.model.data_handler.get_industrial_phase_down_rates(
+                    config=component_config.industrial
+                )
+                industrial_output_reduction = self.model.data_handler.get_industrial_output_reduction(
+                    config=component_config.industrial
+                )
+                industrial_other_adjustments = self.model.data_handler.get_industrial_other_adjustments(
+                    config=component_config.industrial
                 )
         except Exception as e:
-            raise ValueError(f"Failed to load industrial allocation data for config '{component_config.industrial}': {e}")
+            raise ValueError(f"Failed to load industrial allocation data for config '{component_config.industrial}' in '{industrial_mode}' mode: {e}")
             
         try:
             # First check if we have scenario-specific forestry data
@@ -274,7 +296,11 @@ class ScenarioManager:
                     f"Failed to load historical_removals for config '{component_config.forestry}': {e}"
                 )
             try:
-                yield_increments = self.model.data_handler.get_yield_increments()
+                # Use manley_sensitivity config for yield blend weights (large/small forest)
+                manley_sensitivity = getattr(component_config, 'manley_sensitivity', 'central')
+                yield_increments = self.model.data_handler.get_yield_increments(
+                    config=manley_sensitivity
+                )
             except Exception as e:
                 raise ValueError(f"Failed to load yield increments: {e}")
             try:
@@ -370,7 +396,8 @@ class ScenarioManager:
                         'discount_rate': getattr(component_config, 'discount_rate', None),
                         'payback_period': getattr(component_config, 'payback_period', None),
                         'stockpile_usage_start_year': getattr(component_config, 'stockpile_usage_start_year', None),
-                        'stockpile_reference_year': getattr(component_config, 'stockpile_reference_year', None)
+                        'stockpile_reference_year': getattr(component_config, 'stockpile_reference_year', None),
+                        'minimum_stockpile': getattr(component_config, 'minimum_stockpile', None)
                     },
                     scenario_name=scenario_name,
                     model_start_year=self.model.config.start_year
@@ -409,14 +436,19 @@ class ScenarioManager:
         try:
             self.model.industrial = IndustrialAllocation(
                 years=self.model.years,
-                ia_data=ia_data
+                mode=industrial_mode,
+                ia_data=ia_data,
+                base_output=industrial_base_output,
+                phase_down_rates=industrial_phase_down_rates,
+                output_reduction=industrial_output_reduction,
+                other_adjustments=industrial_other_adjustments
             )
         except Exception as e:
-            raise ValueError(f"Failed to initialise industrial allocation component: {e}")
+            raise ValueError(f"Failed to initialise industrial allocation component in '{industrial_mode}' mode: {e}")
         
         try:
             self.model.forestry = ForestrySupply(
-                years=self.model.years,
+                years=self.model.calculation_years,
                 forestry_data=forestry_data,
                 mode=forestry_mode,
                 manley_config=component_config if forestry_mode == 'endogenous' else None,
@@ -427,19 +459,19 @@ class ScenarioManager:
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise forestry component: {e}")
-        
+
         try:
             self.model.emissions = EmissionsDemand(
-                years=self.model.years,
+                years=self.model.calculation_years,
                 emissions_data=emissions_data,
                 config_name=component_config.emissions
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise emissions component: {e}")
-        
+
         try:
             self.model.price_response = PriceResponse(
-                years=self.model.years,
+                years=self.model.calculation_years,
                 demand_model_params=demand_model_params
             )
         except Exception as e:

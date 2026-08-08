@@ -43,11 +43,12 @@ class StockpileSupply:
         discount_rate: Optional[float] = None,
         stockpile_reference_year: Optional[int] = None,
         stockpile_usage_start_year: Optional[int] = None,
+        minimum_stockpile: Optional[float] = None,
         forestry_variables: Optional[pd.DataFrame] = None,
     ):
         """
         Initialise the stockpile supply component.
-        
+
         Args:
             years: List of years for the model.
             extended_years: List of extended projection years beyond the model period.
@@ -59,6 +60,7 @@ class StockpileSupply:
             discount_rate: Discount rate used for price signal effects. Default is 0.05.
             stockpile_reference_year: Year-end for which initial values are provided. Default is 2022.
             stockpile_usage_start_year: Year when stockpile becomes available to use. Default is 2024.
+            minimum_stockpile: Minimum total stockpile balance (kt). Stockpile cannot be drawn below this level. Default is 50000.
             forestry_variables: DataFrame with forestry_held and forestry_surrender data by year.
         """
         self.years = years
@@ -85,6 +87,11 @@ class StockpileSupply:
         self.discount_rate     = _require('discount_rate',     discount_rate,     stockpile_params)
         self.stockpile_reference_year   = _require('stockpile_reference_year',   stockpile_reference_year,   stockpile_params)
         self.stockpile_usage_start_year = _require('stockpile_usage_start_year', stockpile_usage_start_year, stockpile_params)
+
+        # minimum_stockpile is required (defaults to 50000 in model_parameters.csv)
+        self.minimum_stockpile = _require('minimum_stockpile', minimum_stockpile, stockpile_params)
+        if self.minimum_stockpile < 0:
+            raise ValueError(f"minimum_stockpile must be >= 0, got {self.minimum_stockpile}")
         
         # Validate the years make sense
         if self.stockpile_reference_year >= self.stockpile_usage_start_year:
@@ -249,9 +256,12 @@ class StockpileSupply:
             # Check if year is eligible for stockpile usage
             if year >= self.stockpile_usage_start_year and balance < 0:  # Demand exceeds supply
                 shortfall = abs(balance)
-                
+
                 # First use surplus stockpile - ALWAYS AVAILABLE regardless of price growth
-                surplus_used = min(shortfall, self.surplus_balance[year])
+                # But constrained by minimum_stockpile floor
+                available_surplus = self.surplus_balance[year]
+                max_drawable_from_surplus = max(0, self.stockpile_balance[year] - self.minimum_stockpile)
+                surplus_used = min(shortfall, available_surplus, max_drawable_from_surplus)
                 self.surplus_balance[year] -= surplus_used
                 self.stockpile_balance[year] -= surplus_used
                 shortfall -= surplus_used
@@ -268,14 +278,18 @@ class StockpileSupply:
                     # Calculate available non-surplus using previous year's balance
                     liquid_non_surplus = prev_non_surplus * self.liquidity_factor
                     proposed_non_surplus_used = min(shortfall, liquid_non_surplus)
-                    
+
                     # Validate against current non-surplus balance
                     current_non_surplus = max(0, self.stockpile_balance[year] - self.surplus_balance[year])
                     if proposed_non_surplus_used > current_non_surplus:
                         non_surplus_used = min(proposed_non_surplus_used, current_non_surplus)
                     else:
                         non_surplus_used = proposed_non_surplus_used
-                    
+
+                    # Apply minimum_stockpile constraint to non-surplus drawdown
+                    max_drawable_total = max(0, self.stockpile_balance[year] - self.minimum_stockpile)
+                    non_surplus_used = min(non_surplus_used, max_drawable_total)
+
                     # Update balances
                     self.stockpile_balance[year] -= non_surplus_used
                     

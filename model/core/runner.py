@@ -474,26 +474,135 @@ class ModelRunner:
     def _run_scenario_optimisation(self, scenario_name: str) -> Dict[str, Any]:
         """
         Run optimisation for the current scenario configuration.
-        
+
         Args:
             scenario_name: Name of the scenario being optimised
-            
+
+        Returns:
+            Dict containing optimisation and model results.
+        """
+        # Check if we're in peak-year search mode
+        component_config = self.model.component_configs[self.model._active_scenario_index]
+        price_control_mode = getattr(component_config, 'price_control_mode', 'exogenous')
+
+        if price_control_mode == 'smooth_peak_search':
+            # Run peak-year search optimization
+            return self._run_scenario_optimisation_with_peak_search(scenario_name, component_config)
+        else:
+            # Standard single-rate optimization
+            return self._run_scenario_optimisation_standard(scenario_name)
+
+    def _run_scenario_optimisation_standard(self, scenario_name: str) -> Dict[str, Any]:
+        """
+        Run standard optimisation for the current scenario configuration.
+
+        Args:
+            scenario_name: Name of the scenario being optimised
+
         Returns:
             Dict containing optimisation and model results.
         """
         # Set up and run the optimiser
         optimiser = self._setup_optimiser()
         optimisation_results = optimiser.optimise()
-        
+
         # Get optimal price change rate and calculate resulting gap
         optimal_rate = optimisation_results['optimal_rate']
         gap = self.model.calculation_engine.calculate_gap(optimal_rate)
-        
+
         # Run model with optimal rate for final, detailed results
         model_results = self.run_model(optimal_rate, scenario_name=scenario_name, is_final_run=True)
-        
+
         # Compile and return results
         return self._compile_optimisation_results(optimisation_results, gap, model_results)
+
+    def _run_scenario_optimisation_with_peak_search(self, scenario_name: str, component_config) -> Dict[str, Any]:
+        """
+        Run optimisation with peak-year search.
+
+        For each candidate peak year in the range, runs the full optimisation to find
+        the best price_change_rate, then selects the peak year with the lowest gap.
+
+        Args:
+            scenario_name: Name of the scenario being optimised
+            component_config: ComponentConfig for this scenario
+
+        Returns:
+            Dict containing optimisation and model results, plus peak_year_search diagnostics
+        """
+        peak_year_range = component_config.price_control_peak_year_range
+        if peak_year_range is None:
+            raise ValueError(
+                f"price_control_mode='smooth_peak_search' requires peak_year_range to be set. "
+                f"Call fill('price_control_peak_year_range', (start, end), scenario='{scenario_name}') first."
+            )
+
+        start_year, end_year = peak_year_range
+        candidates = list(range(start_year, end_year + 1))  # Inclusive range
+
+        print(f"\n{'='*80}")
+        print(f"PEAK YEAR SEARCH: Testing {len(candidates)} candidates ({start_year}–{end_year})")
+        print(f"Scenario: {scenario_name}")
+        print(f"{'='*80}\n")
+
+        # Search across all candidate peak years
+        search_results = []
+        for idx, peak_year in enumerate(candidates, 1):
+            print(f"[{idx}/{len(candidates)}] Testing peak_year = {peak_year}...")
+
+            # Temporarily set this peak year
+            component_config.price_control_peak_year = peak_year
+
+            # Run standard optimisation for this peak year
+            optimiser = self._setup_optimiser()
+            optimisation_results = optimiser.optimise()
+            optimal_rate = optimisation_results['optimal_rate']
+            min_gap = optimisation_results['min_gap']
+
+            # Record results
+            search_results.append({
+                'peak_year': peak_year,
+                'optimal_rate': optimal_rate,
+                'min_gap': min_gap
+            })
+
+            print(f"  -> Optimal rate: {optimal_rate:.6f}, Gap: {min_gap:,.0f}\n")
+
+        # Select the best peak year (lowest gap)
+        best = min(search_results, key=lambda x: x['min_gap'])
+        selected_peak_year = best['peak_year']
+        selected_rate = best['optimal_rate']
+
+        print(f"{'='*80}")
+        print(f"SEARCH COMPLETE: Selected peak_year = {selected_peak_year}")
+        print(f"  Optimal rate: {selected_rate:.6f}")
+        print(f"  Gap: {best['min_gap']:,.0f}")
+        print(f"{'='*80}\n")
+
+        # Set the final peak year and run model for detailed results
+        component_config.price_control_peak_year = selected_peak_year
+        gap = self.model.calculation_engine.calculate_gap(selected_rate)
+        model_results = self.run_model(selected_rate, scenario_name=scenario_name, is_final_run=True)
+
+        # Compile results with peak_year_search diagnostics
+        results = {
+            'price_change_rate': selected_rate,
+            'total_gap': gap,
+            'prices': model_results['prices'],
+            'unmodified_prices': model_results.get('unmodified_prices', model_results['prices']),
+            'supply': model_results['supply'],
+            'demand': model_results['demand'],
+            'final_price': model_results['prices'][self.model.config.end_year],
+            'convergence_success': True,
+            'optimisation_message': f'smooth_peak_search: tested {len(candidates)} peak years',
+            'peak_year_search': {
+                'candidates': search_results,
+                'selected_peak_year': selected_peak_year,
+            },
+            'model': model_results,
+        }
+
+        return results
     
     def _run_fixed_path(self, scenario_name: str, scenario_index: int) -> Dict[str, Any]:
         """

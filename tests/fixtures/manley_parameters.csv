@@ -17,5 +17,7 @@ default,forestry_discount_rate,0.08
 default,forestry_forward_years,15
 default,max_forestry,50000
 default,max_forestry_2050,50000
-default,max_aggregate_afforestation,1000000000
+default,max_aggregate_afforestation,1000000
 default,price_conversion_2021,1.140449438
+default,large_forest_weight,0.8
+default,small_forest_weight,0.2

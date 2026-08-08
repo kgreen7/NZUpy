@@ -1,0 +1,298 @@
+Config,Year,Sector,Factor
+central,2024,Aluminium,1
+central,2025,Aluminium,1
+central,2026,Aluminium,1
+central,2027,Aluminium,1
+central,2028,Aluminium,1
+central,2029,Aluminium,1
+central,2030,Aluminium,1
+central,2031,Aluminium,1
+central,2032,Aluminium,1
+central,2033,Aluminium,1
+central,2034,Aluminium,1
+central,2035,Aluminium,1
+central,2036,Aluminium,1
+central,2037,Aluminium,1
+central,2038,Aluminium,1
+central,2039,Aluminium,1
+central,2040,Aluminium,1
+central,2041,Aluminium,1
+central,2042,Aluminium,1
+central,2043,Aluminium,1
+central,2044,Aluminium,1
+central,2045,Aluminium,1
+central,2046,Aluminium,1
+central,2047,Aluminium,1
+central,2048,Aluminium,1
+central,2049,Aluminium,1
+central,2050,Aluminium,1
+central,2024,Cement and lime,1
+central,2025,Cement and lime,1
+central,2026,Cement and lime,1
+central,2027,Cement and lime,1
+central,2028,Cement and lime,1
+central,2029,Cement and lime,1
+central,2030,Cement and lime,1
+central,2031,Cement and lime,1
+central,2032,Cement and lime,1
+central,2033,Cement and lime,1
+central,2034,Cement and lime,1
+central,2035,Cement and lime,1
+central,2036,Cement and lime,1
+central,2037,Cement and lime,1
+central,2038,Cement and lime,1
+central,2039,Cement and lime,1
+central,2040,Cement and lime,1
+central,2041,Cement and lime,1
+central,2042,Cement and lime,1
+central,2043,Cement and lime,1
+central,2044,Cement and lime,1
+central,2045,Cement and lime,1
+central,2046,Cement and lime,1
+central,2047,Cement and lime,1
+central,2048,Cement and lime,1
+central,2049,Cement and lime,1
+central,2050,Cement and lime,1
+central,2024,Iron and steel,1
+central,2025,Iron and steel,1
+central,2026,Iron and steel,0.6
+central,2027,Iron and steel,0.6
+central,2028,Iron and steel,0.6
+central,2029,Iron and steel,0.6
+central,2030,Iron and steel,0.6
+central,2031,Iron and steel,0.6
+central,2032,Iron and steel,0.6
+central,2033,Iron and steel,0.6
+central,2034,Iron and steel,0.6
+central,2035,Iron and steel,0.6
+central,2036,Iron and steel,0.6
+central,2037,Iron and steel,0.6
+central,2038,Iron and steel,0.6
+central,2039,Iron and steel,0.6
+central,2040,Iron and steel,0.6
+central,2041,Iron and steel,0.6
+central,2042,Iron and steel,0.6
+central,2043,Iron and steel,0.6
+central,2044,Iron and steel,0.6
+central,2045,Iron and steel,0.6
+central,2046,Iron and steel,0.6
+central,2047,Iron and steel,0.6
+central,2048,Iron and steel,0.6
+central,2049,Iron and steel,0.6
+central,2050,Iron and steel,0.6
+central,2024,Methanol,1
+central,2025,Methanol,1
+central,2026,Methanol,0.8
+central,2027,Methanol,0.6
+central,2028,Methanol,0
+central,2029,Methanol,0
+central,2030,Methanol,0
+central,2031,Methanol,0
+central,2032,Methanol,0
+central,2033,Methanol,0
+central,2034,Methanol,0
+central,2035,Methanol,0
+central,2036,Methanol,0
+central,2037,Methanol,0
+central,2038,Methanol,0
+central,2039,Methanol,0
+central,2040,Methanol,0
+central,2041,Methanol,0
+central,2042,Methanol,0
+central,2043,Methanol,0
+central,2044,Methanol,0
+central,2045,Methanol,0
+central,2046,Methanol,0
+central,2047,Methanol,0
+central,2048,Methanol,0
+central,2049,Methanol,0
+central,2050,Methanol,0
+central,2024,Other-High,1
+central,2025,Other-High,1
+central,2026,Other-High,1
+central,2027,Other-High,1
+central,2028,Other-High,1
+central,2029,Other-High,1
+central,2030,Other-High,1
+central,2031,Other-High,1
+central,2032,Other-High,1
+central,2033,Other-High,1
+central,2034,Other-High,1
+central,2035,Other-High,1
+central,2036,Other-High,1
+central,2037,Other-High,1
+central,2038,Other-High,1
+central,2039,Other-High,1
+central,2040,Other-High,1
+central,2041,Other-High,1
+central,2042,Other-High,1
+central,2043,Other-High,1
+central,2044,Other-High,1
+central,2045,Other-High,1
+central,2046,Other-High,1
+central,2047,Other-High,1
+central,2048,Other-High,1
+central,2049,Other-High,1
+central,2050,Other-High,1
+central,2024,Pulp and paper products,1
+central,2025,Pulp and paper products,0.7
+central,2026,Pulp and paper products,0.6
+central,2027,Pulp and paper products,0.6
+central,2028,Pulp and paper products,0.6
+central,2029,Pulp and paper products,0.6
+central,2030,Pulp and paper products,0.6
+central,2031,Pulp and paper products,0.6
+central,2032,Pulp and paper products,0.6
+central,2033,Pulp and paper products,0.6
+central,2034,Pulp and paper products,0.6
+central,2035,Pulp and paper products,0.6
+central,2036,Pulp and paper products,0.6
+central,2037,Pulp and paper products,0.6
+central,2038,Pulp and paper products,0.6
+central,2039,Pulp and paper products,0.6
+central,2040,Pulp and paper products,0.6
+central,2041,Pulp and paper products,0.6
+central,2042,Pulp and paper products,0.6
+central,2043,Pulp and paper products,0.6
+central,2044,Pulp and paper products,0.6
+central,2045,Pulp and paper products,0.6
+central,2046,Pulp and paper products,0.6
+central,2047,Pulp and paper products,0.6
+central,2048,Pulp and paper products,0.6
+central,2049,Pulp and paper products,0.6
+central,2050,Pulp and paper products,0.6
+central,2024,Urea,1
+central,2025,Urea,1
+central,2026,Urea,0.9
+central,2027,Urea,1
+central,2028,Urea,1
+central,2029,Urea,1
+central,2030,Urea,1
+central,2031,Urea,1
+central,2032,Urea,1
+central,2033,Urea,1
+central,2034,Urea,1
+central,2035,Urea,1
+central,2036,Urea,1
+central,2037,Urea,1
+central,2038,Urea,1
+central,2039,Urea,1
+central,2040,Urea,1
+central,2041,Urea,1
+central,2042,Urea,1
+central,2043,Urea,1
+central,2044,Urea,1
+central,2045,Urea,1
+central,2046,Urea,1
+central,2047,Urea,1
+central,2048,Urea,1
+central,2049,Urea,1
+central,2050,Urea,1
+central,2024,Dairy products,1
+central,2025,Dairy products,1
+central,2026,Dairy products,1
+central,2027,Dairy products,1
+central,2028,Dairy products,1
+central,2029,Dairy products,1
+central,2030,Dairy products,1
+central,2031,Dairy products,1
+central,2032,Dairy products,1
+central,2033,Dairy products,1
+central,2034,Dairy products,1
+central,2035,Dairy products,1
+central,2036,Dairy products,1
+central,2037,Dairy products,1
+central,2038,Dairy products,1
+central,2039,Dairy products,1
+central,2040,Dairy products,1
+central,2041,Dairy products,1
+central,2042,Dairy products,1
+central,2043,Dairy products,1
+central,2044,Dairy products,1
+central,2045,Dairy products,1
+central,2046,Dairy products,1
+central,2047,Dairy products,1
+central,2048,Dairy products,1
+central,2049,Dairy products,1
+central,2050,Dairy products,1
+central,2024,Horticulture,1
+central,2025,Horticulture,1
+central,2026,Horticulture,1
+central,2027,Horticulture,1
+central,2028,Horticulture,1
+central,2029,Horticulture,1
+central,2030,Horticulture,1
+central,2031,Horticulture,1
+central,2032,Horticulture,1
+central,2033,Horticulture,1
+central,2034,Horticulture,1
+central,2035,Horticulture,1
+central,2036,Horticulture,1
+central,2037,Horticulture,1
+central,2038,Horticulture,1
+central,2039,Horticulture,1
+central,2040,Horticulture,1
+central,2041,Horticulture,1
+central,2042,Horticulture,1
+central,2043,Horticulture,1
+central,2044,Horticulture,1
+central,2045,Horticulture,1
+central,2046,Horticulture,1
+central,2047,Horticulture,1
+central,2048,Horticulture,1
+central,2049,Horticulture,1
+central,2050,Horticulture,1
+central,2024,Meat products,1
+central,2025,Meat products,1
+central,2026,Meat products,1
+central,2027,Meat products,1
+central,2028,Meat products,1
+central,2029,Meat products,1
+central,2030,Meat products,1
+central,2031,Meat products,1
+central,2032,Meat products,1
+central,2033,Meat products,1
+central,2034,Meat products,1
+central,2035,Meat products,1
+central,2036,Meat products,1
+central,2037,Meat products,1
+central,2038,Meat products,1
+central,2039,Meat products,1
+central,2040,Meat products,1
+central,2041,Meat products,1
+central,2042,Meat products,1
+central,2043,Meat products,1
+central,2044,Meat products,1
+central,2045,Meat products,1
+central,2046,Meat products,1
+central,2047,Meat products,1
+central,2048,Meat products,1
+central,2049,Meat products,1
+central,2050,Meat products,1
+central,2024,Other-Moderate,1
+central,2025,Other-Moderate,1
+central,2026,Other-Moderate,1
+central,2027,Other-Moderate,1
+central,2028,Other-Moderate,1
+central,2029,Other-Moderate,1
+central,2030,Other-Moderate,1
+central,2031,Other-Moderate,1
+central,2032,Other-Moderate,1
+central,2033,Other-Moderate,1
+central,2034,Other-Moderate,1
+central,2035,Other-Moderate,1
+central,2036,Other-Moderate,1
+central,2037,Other-Moderate,1
+central,2038,Other-Moderate,1
+central,2039,Other-Moderate,1
+central,2040,Other-Moderate,1
+central,2041,Other-Moderate,1
+central,2042,Other-Moderate,1
+central,2043,Other-Moderate,1
+central,2044,Other-Moderate,1
+central,2045,Other-Moderate,1
+central,2046,Other-Moderate,1
+central,2047,Other-Moderate,1
+central,2048,Other-Moderate,1
+central,2049,Other-Moderate,1
+central,2050,Other-Moderate,1

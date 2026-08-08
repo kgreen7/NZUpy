@@ -104,8 +104,10 @@ These help users explore available input data before running.
 |---|---|---|---|
 | `forestry_mode` | `'exogenous'`, `'endogenous'` | `'exogenous'` | Exogenous: fixed forestry series from `removals.csv`.  Endogenous: Manley logistic equation drives new planting; historic forest supply from `historical_removals.csv`. |
 | `pricing_mode` | `'optimised'`, `'fixed_path'`, `'fixed_rate'` | `'optimised'` | Optimised: FastSolve finds optimal `price_change_rate`.  Fixed path: user supplies year-by-year `pd.Series` via `fill('price_path', series)`.  Fixed rate: user supplies scalar via `fill('price_change_rate', value)`.  In both fixed modes the optimiser is skipped. |
+| `price_control_mode` | `'exogenous'`, `'smooth_peak'`, `'smooth_peak_search'` | `'exogenous'` | Exogenous: reads year-by-year control values from `price_control.csv` per selected config (e.g., `'central'`, `'scarcity_then_surplus'`).  Smooth peak: computes control values via quintic smootherstep formula (C²-continuous transition) centered on `price_control_peak_year`.  Smooth peak search: tests multiple peak years in `price_control_peak_year_range`, selects the one producing lowest gap. Formula: `control(t) = V_before + (V_after - V_before) × smootherstep((t - t_start) / width)` where `smootherstep(s) = 6s⁵ - 15s⁴ + 10s³`. |
 | `penalise_shortfalls` | `True`, `False` | `False` | Whether supply shortfalls get a 1,000,000× penalty in the gap objective function.  When `True`, the optimiser avoids price paths that produce supply deficits.  Matches the Excel model's asymmetric penalty. |
-| `manley_sensitivity` | `'low'`, `'central'`, `'high'` | `'central'` | Selects the `f` (available land) and `LMV` (land market value) parameters for the Manley equation.  Only relevant when `forestry_mode='endogenous'`. |
+| `manley_sensitivity` | `'low'`, `'central'`, `'high'` | `'central'` | Selects the `LMV` (land market value) parameter for the Manley equation.  Only relevant when `forestry_mode='endogenous'`.  **Note**: As of the 2026 model update, `f` (available land) is derived from `max_forestry` glide path (2022→2050) and does not vary with sensitivity. |
+| `industrial_mode` | `'calculated'`, `'fixed'` | `'calculated'` | Calculated: allocation computed from sector-level parameters (base output, phase-down rates, output reduction, other adjustments).  Fixed: simple time-series from `industrial_allocation.csv`.  Only `'calculated'` matches the May 2026 Excel model methodology. |
 | `forestry_price_assumption` | `'future'`, `'current'` | `'future'` | Future: Manley uses NPV-weighted forward carbon price.  Current: uses spot price.  Only relevant when `forestry_mode='endogenous'`. |
 
 ---
@@ -124,7 +126,11 @@ The `_VARIABLE_COMPONENT_MAP` dict in `base_model.py` routes `fill()` calls.  Ke
 | `forestry_held` / `forestry_surrender` | forestry | time-series | Held/surrender affecting stockpile |
 | `manley_f` / `manley_LMV` / `manley_LUC_limit` | forestry | scalar | Manley equation overrides |
 | `forestry_discount_rate` / `forestry_forward_years` | forestry | scalar | Forestry NPV overrides |
-| `baseline_allocation` | industrial | time-series | Industrial allocation volume |
+| `baseline_allocation` | industrial | time-series | Industrial allocation volume (fixed mode only) |
+| `industrial_base_output` | industrial | config | Sector-level base output values (calculated mode) |
+| `industrial_phase_down_rates` | industrial | config | Phase-down schedules by category (calculated mode) |
+| `industrial_output_reduction` | industrial | config | Sector closure assumptions (calculated mode) |
+| `industrial_other_adjustments` | industrial | config | Additional adjustments per sector (calculated mode) |
 | `emissions_baseline` | emissions | time-series | Baseline emissions pathway |
 | `demand_model_number` | demand_model | scalar (1 or 2) | 1 = MACC, 2 = ENZ log-linear |
 | `initial_stockpile` / `initial_surplus` | stockpile | scalar | Opening balances |
@@ -132,8 +138,15 @@ The `_VARIABLE_COMPONENT_MAP` dict in `base_model.py` routes `fill()` calls.  Ke
 | `discount_rate` | stockpile | scalar (0–1) | Requires `component='stockpile'` to disambiguate |
 | `payback_period` | stockpile | scalar (int) | Years until borrowed units repaid |
 | `stockpile_usage_start_year` / `stockpile_reference_year` | stockpile | scalar (int) | When stockpile kicks in / baseline year |
+| `minimum_stockpile` | stockpile | scalar (kt, ≥0) | Minimum total stockpile balance; cannot be drawn below this level (default: 50000 kt) |
 | `start_price` | price | scalar | Starting carbon price (overrides last historical) |
-| `price_control` | price | time-series | Per-year price control parameter |
+| `price_control` | price | time-series | Per-year price control parameter (exogenous mode only) |
+| `price_control_mode` | price | mode | `'exogenous'` (CSV), `'smooth_peak'` (formula), or `'smooth_peak_search'` (optimizes peak year) |
+| `price_control_peak_year` | price | scalar (int) | Center year for smooth transition (required for smooth_peak modes) |
+| `price_control_before` | price | scalar | Control value before transition (default: -1.0) |
+| `price_control_after` | price | scalar | Control value after transition (default: 0.5) |
+| `price_control_width` | price | scalar | Transition width in years (default: 5.0) |
+| `price_control_peak_year_range` | price | tuple (int, int) | (start, end) range for peak-year search (smooth_peak_search mode only) |
 | `price_path` | price | time-series | Fixed price path (used with `pricing_mode='fixed_path'`) |
 | `price_change_rate` | price | scalar | Fixed rate (used with `pricing_mode='fixed_rate'`) |
 
@@ -159,9 +172,11 @@ The `_VARIABLE_COMPONENT_MAP` dict in `base_model.py` routes `fill()` calls.  Ke
 
 **`forestry.py`** — `ForestrySupply`.  Two modes:
 - *Exogenous*: passes through `forestry_tradeable` from `removals.csv`.
-- *Endogenous*: historic forests contribute fixed supply from `historical_removals.csv`.  New forests are planted via the Manley logistic equation (driven by forward carbon price vs land cost), then convolved with yield curves to produce removals.  New planting is proportioned across permanent/production/natural using MPI afforestation projection ratios.
+- *Endogenous*: historic forests contribute fixed supply from `historical_removals.csv`.  New forests are planted via the Manley logistic equation (driven by forward carbon price vs land cost), then convolved with yield curves to produce removals.  New planting is proportioned across permanent/production/natural using MPI afforestation projection ratios.  **2026 update**: f(t) (available land asymptote) now glides linearly from `max_forestry` (2022) to `max_forestry_2050` (2050), then holds flat; yield increments are blended 80% large-forest/20% small-forest on-demand per sensitivity config.
 
-**`industrial.py`** — `IndustrialAllocation`.  Simple pass-through of `baseline_allocation` from CSV.  No phase-out or activity adjustment applied (matches Excel model).
+**`industrial.py`** — `IndustrialAllocation`.  Two modes:
+- *Calculated* (default, matches May 2026 Excel): computes allocation from sector-level parameters: base output (2024 values per sector), phase-down rates (High/Moderate schedules), output reduction (closure assumptions), and other adjustments (e.g., Aluminium contract).  Uses CCC methodology.
+- *Fixed*: simple pass-through of `baseline_allocation` time-series from CSV.  Preserves backward compatibility with Nov 2025 model and earlier.
 
 **`stockpile.py`** — `StockpileSupply`.  Most complex supply component.  Tracks two pools: surplus (fully available) and non-surplus (available at `liquidity_factor` rate, with payback).  Surplus is used first; non-surplus only when price growth < discount rate.  Excess supply (demand < supply) replenishes surplus.  Borrowed non-surplus units are scheduled for payback after `payback_period` years.  Forestry held/surrender flows affect the stockpile balance.
 
@@ -173,7 +188,7 @@ The `_VARIABLE_COMPONENT_MAP` dict in `base_model.py` routes `fill()` calls.  Ke
 
 ### 4.4  `model/utils/` — data loading and output formatting
 
-**`data_handler.py`** — `DataHandler`.  Loads all CSV input files on init, including historical carbon price, CPI data, and price control configs (formerly in `HistoricalDataManager`).  Provides getter methods filtered by config name: `get_auction_data(config)`, `get_forestry_data(config)`, `get_emissions_data(config)`, `get_stockpile_parameters(config)`, `get_demand_model(config, model_number)`, etc.  Historical data methods: `get_historical_data(variable)`, `get_price_control(year, config)`, `get_combined_series()`, `convert_to_nominal()`.  Stores scenario-specific overrides in `scenario_data[scenario_name][component]` dict.
+**`data_handler.py`** — `DataHandler`.  Loads all CSV input files on init, including historical carbon price, CPI data, and price control configs (formerly in `HistoricalDataManager`).  Provides getter methods filtered by config name: `get_auction_data(config)`, `get_forestry_data(config)`, `get_emissions_data(config)`, `get_stockpile_parameters(config)`, `get_demand_model(config, model_number)`, `get_industrial_base_output(config)`, `get_industrial_phase_down_rates(config)`, `get_industrial_output_reduction(config)`, `get_industrial_other_adjustments(config)`, etc.  **2026 update**: `get_yield_increments(config)` now computes blended yield curves on-demand (80% large-forest/20% small-forest) using weights from manley_parameters.csv.  Historical data methods: `get_historical_data(variable)`, `get_price_control(year, config)`, `get_combined_series()`, `convert_to_nominal()`.  Stores scenario-specific overrides in `scenario_data[scenario_name][component]` dict.
 
 **`output_format.py`** — `OutputFormat`.  Takes raw results dicts from `ModelRunner` and organises into the MultiIndex DataFrames users access via `nzu.prices`, `nzu.supply`, etc.  Provides `list_variables()` and `variable_info()`.  Contains the `_variable_schema` metadata dict describing every output variable.
 
@@ -252,16 +267,20 @@ All in `data/inputs/`:
 | `parameters/` | `price_control.csv` | Price control parameter series by year (config-keyed: central, scarcity_then_surplus, weakening) |
 | `supply/` | `auctions.csv` | Auction volumes, reserve prices, CCR triggers (config-keyed) |
 | `supply/` | `removals.csv` | Exogenous forestry: tradeable, held, surrender (config-keyed) |
-| `supply/` | `industrial_allocation.csv` | Industrial allocation volumes (config-keyed) |
+| `supply/` | `industrial_allocation.csv` | Industrial allocation volumes (config-keyed); used in `industrial_mode='fixed'` only |
+| `supply/` | `industrial_base_output.csv` | Sector-level base output values (2024) by category (High/Moderate); used in `industrial_mode='calculated'` |
+| `supply/` | `industrial_phase_down_rates.csv` | Phase-down schedules (2024-2050) by category (High/Moderate); used in `industrial_mode='calculated'` |
+| `supply/` | `industrial_output_reduction.csv` | Sector-level closure assumptions (output reduction factors by year); used in `industrial_mode='calculated'` |
+| `supply/` | `industrial_other_adjustments.csv` | Additional adjustments per sector (e.g., Aluminium contract); used in `industrial_mode='calculated'` |
 | `supply/` | `stockpile_balance.csv` | Initial stockpile and surplus values (config-keyed) |
 | `supply/` | `historical_removals.csv` | Historic forest removals (tradeable, held, surrender) from existing forests; used only in endogenous forestry mode |
 | `forestry/` | `afforestation_projections.csv` | MPI annual afforestation projections by year, forest type (permanent_exotic, production_exotic, natural_forest), and sensitivity config (low/central/high); used by endogenous forestry to proportion new planting |
-| `forestry/` | `manley_parameters.csv` | Manley logistic equation parameters by sensitivity (low/central/high), plus shared defaults; drives new-planting response to carbon price in endogenous mode |
-| `forestry/` | `yield_tables.csv` | Cumulative carbon yield (tCO₂e/ha) by forest age for each forest type; pre-computed into annual increments by `DataHandler` for use in endogenous forestry convolution |
+| `forestry/` | `manley_parameters.csv` | Manley logistic equation parameters by sensitivity (low/central/high), plus shared defaults (including `large_forest_weight`/`small_forest_weight` for yield blending, `max_forestry`/`max_forestry_2050` for f(t) glide path, `max_aggregate_afforestation` cap); drives new-planting response to carbon price in endogenous mode |
+| `forestry/` | `yield_tables.csv` | Cumulative carbon yield (tCO₂e/ha) by forest age for each forest type, with separate large and small variants; config-keyed (e.g., 'central' = original MfE data, 'alternative' = new MPI small-forest data); blended 80/20 on-demand by `DataHandler.get_yield_increments(config)` for use in endogenous forestry convolution |
 | `demand/` | `emissions_baselines.csv` | Baseline emissions pathways (config-keyed) |
 | `demand/` | `demand_models.csv` | Price-response model parameters (config-keyed, by model number) |
 | `economic/` | `CPI.csv` | Consumer Price Index for real↔nominal conversion |
 
 ---
 
-Last updated: 20 March 2026 — dead code removal, price control rationalisation (`fill('price_control', ...)` / `fill_component('price', ...)`)
+Last updated: 8 August 2026 — Added config-based yield tables support (central vs alternative MPI small-forest data). Added smooth peak price control mode (quintic formula) with automatic peak-year search capability. May 2026 Excel model update (forestry yield 80/20 blend, industrial allocation calculated mode, Manley f(t) glide path fix, max_aggregate_afforestation correction, data refreshes)

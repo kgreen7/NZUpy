@@ -177,7 +177,7 @@ class CalculationEngine:
         """
         Compile the final supply DataFrame with all components.
         """
-        self.model.supply = pd.DataFrame(index=self.model.years)
+        self.model.supply = pd.DataFrame(index=self.model.calculation_years)
         self.model.supply['auction'] = self.model.auction_results['total_auction']
         self.model.supply['industrial'] = self.model.industrial_results['adjusted_allocation']
         self.model.supply['forestry'] = self.model.forestry_results['total_supply']
@@ -355,18 +355,28 @@ class CalculationEngine:
     def _get_price_control_value(self, year: int) -> float:
         """
         Get price control value following parameter loading priority.
-        
+
         Args:
             year: Year to get price control for
-            
+
         Returns:
             Price control value (1.0 is neutral)
         """
+        # Check if using smooth_peak mode
+        if hasattr(self.model, '_active_scenario_index') and self.model._active_scenario_index is not None:
+            component_config = self.model.component_configs[self.model._active_scenario_index]
+            price_control_mode = getattr(component_config, 'price_control_mode', 'exogenous')
+
+            if price_control_mode in ('smooth_peak', 'smooth_peak_search'):
+                # Use formula-based smooth transition
+                return self._calculate_smooth_control_value(year, component_config)
+
+        # Exogenous mode: use CSV-based or override values
         # Try getting from direct parameter settings (highest priority)
         control_value = self.model.price_control_parameter.get(year)
         if control_value is not None:
             return control_value
-        
+
         # Try getting from currently active config (middle priority)
         if hasattr(self.model, 'data_handler'):
             active_config = self.model.active_price_control_config
@@ -374,9 +384,82 @@ class CalculationEngine:
                 control_value = self.model.data_handler.get_price_control(year, config=active_config)
                 if control_value is not None:
                     return control_value
-        
+
         # No price control configured — return neutral value (1.0 = apply rate as-is)
         return 1.0
+
+    def _calculate_smooth_control_value(self, year: int, component_config) -> float:
+        """
+        Calculate smooth price control value using quintic smootherstep formula.
+
+        Implements a smooth S-curve transition centered on peak_year:
+        - Before (t <= P - W/2): control = V_before
+        - Transition (P - W/2 < t < P + W/2): smooth quintic curve
+        - After (t >= P + W/2): control = V_after
+
+        Formula: smootherstep(s) = 6s^5 - 15s^4 + 10s^3
+        where s = (t - t_start) / W maps the year to [0, 1] across the transition.
+
+        Args:
+            year: Year to calculate control value for
+            component_config: ComponentConfig with smooth peak parameters
+
+        Returns:
+            Smooth control value
+        """
+        peak_year = component_config.price_control_peak_year
+        width = component_config.price_control_width
+        v_before = component_config.price_control_before
+        v_after = component_config.price_control_after
+
+        # Validate peak_year is set
+        if peak_year is None:
+            raise ValueError(
+                "price_control_peak_year must be set when using smooth_peak mode. "
+                "Use fill('price_control_peak_year', year) to set it."
+            )
+
+        # Validate peak_year is within model range
+        if peak_year < min(self.model.years) or peak_year > max(self.model.years):
+            raise ValueError(
+                f"price_control_peak_year ({peak_year}) must fall within the model's year range "
+                f"({min(self.model.years)}–{max(self.model.years)})."
+            )
+
+        # Calculate transition window
+        half_window = width / 2.0
+        t_start = peak_year - half_window
+        t_end = peak_year + half_window
+
+        # Warn if transition window is mostly outside model range
+        model_start = min(self.model.years)
+        model_end = max(self.model.years)
+        if t_end < model_start or t_start > model_end:
+            print(
+                f"Warning: Smooth transition window ({t_start:.1f}–{t_end:.1f}) "
+                f"falls entirely outside model period ({model_start}–{model_end}). "
+                f"Price control will be constant (either before or after value)."
+            )
+        elif t_start < model_start - width * 0.5 or t_end > model_end + width * 0.5:
+            print(
+                f"Warning: Smooth transition window ({t_start:.1f}–{t_end:.1f}) "
+                f"extends significantly outside model period ({model_start}–{model_end}). "
+                f"Most of the transition may not be visible in results."
+            )
+
+        # Determine which region the year falls into
+        if year <= t_start:
+            # Before transition: flat at v_before
+            return v_before
+        elif year >= t_end:
+            # After transition: flat at v_after
+            return v_after
+        else:
+            # In transition: apply quintic smootherstep
+            s = (year - t_start) / width  # Normalize to [0, 1]
+            # Quintic smootherstep: C2-continuous (zero first and second derivative at boundaries)
+            ease = 6 * s**5 - 15 * s**4 + 10 * s**3
+            return v_before + (v_after - v_before) * ease
 
     def _apply_price_constraints(self, year: int, min_price: Optional[float], max_price: Optional[float]):
         """
@@ -562,7 +645,7 @@ class CalculationEngine:
         have been calculated separately.
         """
         # Create supply DataFrame with all components
-        self.model.supply = pd.DataFrame(index=self.model.years)
+        self.model.supply = pd.DataFrame(index=self.model.calculation_years)
         self.model.supply['auction'] = self.model.auction_results['total_auction']
         self.model.supply['industrial'] = self.model.industrial_results['adjusted_allocation']
         self.model.supply['forestry'] = self.model.forestry_results['total_supply']

@@ -95,7 +95,7 @@ def make_afforestation_projections(years=None):
 
 
 MANLEY_PARAMS = {
-    'f': 100000.0,
+    'f': 100000.0,  # Unused by live calculation (kept for compatibility)
     'LMV': 10000.0,
     'g': 4844.0,
     'h': 0.0005292,
@@ -109,7 +109,7 @@ MANLEY_PARAMS = {
     'forestry_forward_years': 15,
     'max_forestry': 50000.0,
     'max_forestry_2050': 50000.0,
-    'max_aggregate_afforestation': 1_000_000_000.0,
+    'max_aggregate_afforestation': 1_000_000.0,  # Corrected from 1 billion to 1 million
     'price_conversion_2021': 1.140449438,
 }
 
@@ -219,14 +219,18 @@ class TestEndogenousCalculation:
         total_high = result_high['manley_planting_total'].sum()
         assert total_high > total_low
 
-    def test_manley_planting_capped_at_max_forestry(self):
-        """Annual planting never exceeds max_forestry parameter."""
+    def test_manley_planting_capped_at_LUC_limit(self):
+        """Annual planting never exceeds LUC_limit parameter.
+
+        Note: max_forestry no longer acts as a post-sigmoid cap; it constrains
+        the sigmoid asymptote via f(t). LUC_limit is the only hard annual cap.
+        """
         fs = make_endogenous_fs()
         result = fs.calculate(pd.Series(500.0, index=MODEL_YEARS))  # high price
-        max_forestry = MANLEY_PARAMS['max_forestry']
+        luc_limit = MANLEY_PARAMS['LUC_limit']
         for year in MODEL_YEARS:
             total_planting = result.loc[year, 'manley_planting_total']
-            assert total_planting <= max_forestry + 1e-6
+            assert total_planting <= luc_limit + 1e-6
 
     def test_forward_price_npv_calculation(self):
         """For a constant price path, forward_price ≈ price / price_conversion_2021.
@@ -262,22 +266,188 @@ class TestEndogenousCalculation:
         # Check at year 2026 (index 2): lag uses prices[2024], future uses NPV of 2026+
         assert mp_current[2026] < mp_future[2026]
 
-    def test_sensitivity_low_vs_central_vs_high(self):
-        """Higher f (more available land) produces more planting at same price.
+    def test_sensitivity_LMV_affects_results(self):
+        """Higher LMV (land market value) produces less planting at same price.
 
-        Raise max_forestry cap so it doesn't mask the f difference.
+        LMV is the sensitivity parameter that actually affects results (via the
+        profit calculation). Parameter 'f' no longer varies with sensitivity — it's
+        now derived from max_forestry glide path.
         """
-        uncapped = {**MANLEY_PARAMS, 'max_forestry': 1_000_000.0, 'max_forestry_2050': 1_000_000.0}
-        low_params = {**uncapped, 'f': 60000.0}
-        high_params = {**uncapped, 'f': 120000.0}
+        low_LMV_params = {**MANLEY_PARAMS, 'LMV': 7500.0}  # High sensitivity (low LMV)
+        high_LMV_params = {**MANLEY_PARAMS, 'LMV': 10000.0}  # Low sensitivity (high LMV)
 
-        fs_low = make_endogenous_fs(manley_params=low_params)
-        fs_high = make_endogenous_fs(manley_params=high_params)
+        fs_low_LMV = make_endogenous_fs(manley_params=low_LMV_params)
+        fs_high_LMV = make_endogenous_fs(manley_params=high_LMV_params)
 
         price = pd.Series(150.0, index=MODEL_YEARS)
-        result_low = fs_low.calculate(price)
-        result_high = fs_high.calculate(price)
+        result_low_LMV = fs_low_LMV.calculate(price)
+        result_high_LMV = fs_high_LMV.calculate(price)
 
-        total_low = result_low['manley_planting_total'].sum()
-        total_high = result_high['manley_planting_total'].sum()
-        assert total_high > total_low
+        total_low_LMV = result_low_LMV['manley_planting_total'].sum()
+        total_high_LMV = result_high_LMV['manley_planting_total'].sum()
+        # Lower LMV → higher profit → more planting
+        assert total_low_LMV > total_high_LMV
+
+
+# ===========================================================================
+# New tests for f(t) glide path fix and max_aggregate_afforestation fix
+# ===========================================================================
+
+class TestFtGlidePath:
+    def test_ft_time_varying_when_max_forestry_differs(self):
+        """f(t) glides linearly from max_forestry (2022) to max_forestry_2050 (2050).
+
+        When max_forestry != max_forestry_2050, f(t) should vary by year.
+        """
+        params_declining = {
+            **MANLEY_PARAMS,
+            'max_forestry': 60000.0,
+            'max_forestry_2050': 40000.0,
+        }
+        fs = make_endogenous_fs(manley_params=params_declining)
+
+        # f(t) is internal to ForestrySupply; access via _f_series
+        f_series = fs._f_series
+
+        # Should be decreasing over time (60k → 40k)
+        # Years 2024-2035 should all have different values in a declining pattern
+        # Check that f(2024) > f(2030) > f(2035)
+        assert f_series[2024] > f_series[2030]
+        assert f_series[2030] > f_series[2035]
+
+        # Verify approximate values match glide path formula
+        # f(2024) ≈ 60 - (60-40) * (2024-2022)/(2050-2022) = 60 - 20*2/28 ≈ 58.57 ('000 ha)
+        expected_2024 = 60.0 - (60.0 - 40.0) * (2024 - 2022) / (2050 - 2022)
+        assert f_series[2024] == pytest.approx(expected_2024, abs=0.01)
+
+    def test_ft_flattens_after_2050(self):
+        """f(t) holds constant at max_forestry_2050 value for years after 2050."""
+        years_extended = list(range(2024, 2061))  # Include years past 2050
+        params_declining = {
+            **MANLEY_PARAMS,
+            'max_forestry': 60000.0,
+            'max_forestry_2050': 40000.0,
+        }
+
+        fs = ForestrySupply(
+            years=years_extended,
+            forestry_data=make_forestry_data(years=years_extended),
+            mode='endogenous',
+            manley_config=make_endogenous_fs().manley_config,
+            historical_removals=make_historical_removals(),
+            yield_increments=make_yield_increments(),
+            afforestation_projections=make_afforestation_projections(years=years_extended),
+            manley_params=params_declining,
+        )
+
+        f_series = fs._f_series
+
+        # f(2050) should equal max_forestry_2050 / 1000 = 40
+        assert f_series[2050] == pytest.approx(40.0, abs=0.01)
+
+        # f(2051), f(2055), f(2060) should all equal f(2050) (flattened)
+        assert f_series[2051] == pytest.approx(f_series[2050], abs=1e-9)
+        assert f_series[2055] == pytest.approx(f_series[2050], abs=1e-9)
+        assert f_series[2060] == pytest.approx(f_series[2050], abs=1e-9)
+
+    def test_manley_f_parameter_has_no_effect(self):
+        """Changing manley_f parameter has no effect on results.
+
+        f(t) is now derived from max_forestry/max_forestry_2050, not from
+        the 'f' parameter (which was previously tied to manley_sensitivity).
+        """
+        params_f60k = {**MANLEY_PARAMS, 'f': 60000.0}
+        params_f120k = {**MANLEY_PARAMS, 'f': 120000.0}
+
+        fs_f60k = make_endogenous_fs(manley_params=params_f60k)
+        fs_f120k = make_endogenous_fs(manley_params=params_f120k)
+
+        price = pd.Series(150.0, index=MODEL_YEARS)
+        result_f60k = fs_f60k.calculate(price)
+        result_f120k = fs_f120k.calculate(price)
+
+        # Results should be identical (f parameter ignored)
+        for year in MODEL_YEARS:
+            assert result_f60k.loc[year, 'manley_planting_total'] == pytest.approx(
+                result_f120k.loc[year, 'manley_planting_total'], abs=1e-6
+            )
+
+
+class TestMaxAggregateAfforestation:
+    def test_max_aggregate_binds_when_set_low(self):
+        """When max_aggregate_afforestation is set low enough to bind, limit_factor < 1.
+
+        This proportionally scales down planting across all years, not just late years.
+        """
+        # Set max_aggregate very low (50,000 ha cumulative by 2050)
+        # to ensure it binds
+        params_low_cap = {**MANLEY_PARAMS, 'max_aggregate_afforestation': 50_000.0}
+
+        fs = make_endogenous_fs(manley_params=params_low_cap)
+        # High price to ensure unconstrained planting would exceed 50k cumulative
+        result = fs.calculate(pd.Series(300.0, index=MODEL_YEARS))
+
+        # Cumulative planting should not exceed max_aggregate (approximately)
+        # Note: slight tolerance due to LUC_limit and discrete annual steps
+        total_planting = result['manley_planting_total'].sum()
+        assert total_planting <= 50_000.0 + 1000.0  # +1k tolerance for LUC discretization
+
+        # Planting should occur in early years too (not just zeros until late in model)
+        # because limit_factor is applied uniformly
+        assert result.loc[2024, 'manley_planting_total'] > 0
+
+    def test_limit_factor_anchored_to_2050(self):
+        """limit_factor is computed from cumulative at year 2050, not final year.
+
+        Run model with years extending past 2050 to verify the anchor year.
+        """
+        years_extended = list(range(2024, 2056))  # Extends 5 years past 2050
+        params_cap = {**MANLEY_PARAMS, 'max_aggregate_afforestation': 200_000.0}
+
+        fs = ForestrySupply(
+            years=years_extended,
+            forestry_data=make_forestry_data(years=years_extended),
+            mode='endogenous',
+            manley_config=make_endogenous_fs().manley_config,
+            historical_removals=make_historical_removals(),
+            yield_increments=make_yield_increments(),
+            afforestation_projections=make_afforestation_projections(years=years_extended),
+            manley_params=params_cap,
+        )
+
+        result = fs.calculate(pd.Series(200.0, index=years_extended))
+
+        # Cumulative planting through 2050
+        cumulative_2050 = result.loc[:2050, 'manley_planting_total'].sum()
+
+        # limit_factor is computed from cumulative at 2050, so total through
+        # any year >= 2050 should respect the cap proportionally based on 2050 cumulative
+        # (This is a qualitative check; exact validation would require reconstructing
+        # the limit_factor calculation, which is internal to ForestrySupply)
+        assert cumulative_2050 <= 200_000.0 + 1000.0  # tolerance
+
+    def test_fallback_when_2050_not_in_years(self):
+        """When 2050 not in model years, limit_factor uses cumulative[-1].
+
+        This is a fallback that won't match Excel, but should not crash.
+        """
+        years_short = list(range(2024, 2041))  # Ends before 2050
+        params_cap = {**MANLEY_PARAMS, 'max_aggregate_afforestation': 100_000.0}
+
+        fs = ForestrySupply(
+            years=years_short,
+            forestry_data=make_forestry_data(years=years_short),
+            mode='endogenous',
+            manley_config=make_endogenous_fs().manley_config,
+            historical_removals=make_historical_removals(),
+            yield_increments=make_yield_increments(),
+            afforestation_projections=make_afforestation_projections(years=years_short),
+            manley_params=params_cap,
+        )
+
+        # Should not raise — fallback handles 2050 not being present
+        result = fs.calculate(pd.Series(150.0, index=years_short))
+
+        # Verify planting occurred and is finite
+        assert result['manley_planting_total'].notna().all()
+        assert result['manley_planting_total'].sum() > 0
