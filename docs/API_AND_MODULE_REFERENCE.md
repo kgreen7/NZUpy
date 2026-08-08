@@ -104,6 +104,7 @@ These help users explore available input data before running.
 |---|---|---|---|
 | `forestry_mode` | `'exogenous'`, `'endogenous'` | `'exogenous'` | Exogenous: fixed forestry series from `removals.csv`.  Endogenous: Manley logistic equation drives new planting; historic forest supply from `historical_removals.csv`. |
 | `pricing_mode` | `'optimised'`, `'fixed_path'`, `'fixed_rate'` | `'optimised'` | Optimised: FastSolve finds optimal `price_change_rate`.  Fixed path: user supplies year-by-year `pd.Series` via `fill('price_path', series)`.  Fixed rate: user supplies scalar via `fill('price_change_rate', value)`.  In both fixed modes the optimiser is skipped. |
+| `price_control_mode` | `'exogenous'`, `'smooth_peak'`, `'smooth_peak_search'` | `'exogenous'` | Exogenous: reads year-by-year control values from `price_control.csv` per selected config (e.g., `'central'`, `'scarcity_then_surplus'`).  Smooth peak: computes control values via quintic smootherstep formula (C²-continuous transition) centered on `price_control_peak_year`.  Smooth peak search: tests multiple peak years in `price_control_peak_year_range`, selects the one producing lowest gap. Formula: `control(t) = V_before + (V_after - V_before) × smootherstep((t - t_start) / width)` where `smootherstep(s) = 6s⁵ - 15s⁴ + 10s³`. |
 | `penalise_shortfalls` | `True`, `False` | `False` | Whether supply shortfalls get a 1,000,000× penalty in the gap objective function.  When `True`, the optimiser avoids price paths that produce supply deficits.  Matches the Excel model's asymmetric penalty. |
 | `manley_sensitivity` | `'low'`, `'central'`, `'high'` | `'central'` | Selects the `LMV` (land market value) parameter for the Manley equation.  Only relevant when `forestry_mode='endogenous'`.  **Note**: As of the 2026 model update, `f` (available land) is derived from `max_forestry` glide path (2022→2050) and does not vary with sensitivity. |
 | `industrial_mode` | `'calculated'`, `'fixed'` | `'calculated'` | Calculated: allocation computed from sector-level parameters (base output, phase-down rates, output reduction, other adjustments).  Fixed: simple time-series from `industrial_allocation.csv`.  Only `'calculated'` matches the May 2026 Excel model methodology. |
@@ -137,8 +138,15 @@ The `_VARIABLE_COMPONENT_MAP` dict in `base_model.py` routes `fill()` calls.  Ke
 | `discount_rate` | stockpile | scalar (0–1) | Requires `component='stockpile'` to disambiguate |
 | `payback_period` | stockpile | scalar (int) | Years until borrowed units repaid |
 | `stockpile_usage_start_year` / `stockpile_reference_year` | stockpile | scalar (int) | When stockpile kicks in / baseline year |
+| `minimum_stockpile` | stockpile | scalar (kt, ≥0) | Minimum total stockpile balance; cannot be drawn below this level (default: 50000 kt) |
 | `start_price` | price | scalar | Starting carbon price (overrides last historical) |
-| `price_control` | price | time-series | Per-year price control parameter |
+| `price_control` | price | time-series | Per-year price control parameter (exogenous mode only) |
+| `price_control_mode` | price | mode | `'exogenous'` (CSV), `'smooth_peak'` (formula), or `'smooth_peak_search'` (optimizes peak year) |
+| `price_control_peak_year` | price | scalar (int) | Center year for smooth transition (required for smooth_peak modes) |
+| `price_control_before` | price | scalar | Control value before transition (default: -1.0) |
+| `price_control_after` | price | scalar | Control value after transition (default: 0.5) |
+| `price_control_width` | price | scalar | Transition width in years (default: 5.0) |
+| `price_control_peak_year_range` | price | tuple (int, int) | (start, end) range for peak-year search (smooth_peak_search mode only) |
 | `price_path` | price | time-series | Fixed price path (used with `pricing_mode='fixed_path'`) |
 | `price_change_rate` | price | scalar | Fixed rate (used with `pricing_mode='fixed_rate'`) |
 
@@ -268,11 +276,11 @@ All in `data/inputs/`:
 | `supply/` | `historical_removals.csv` | Historic forest removals (tradeable, held, surrender) from existing forests; used only in endogenous forestry mode |
 | `forestry/` | `afforestation_projections.csv` | MPI annual afforestation projections by year, forest type (permanent_exotic, production_exotic, natural_forest), and sensitivity config (low/central/high); used by endogenous forestry to proportion new planting |
 | `forestry/` | `manley_parameters.csv` | Manley logistic equation parameters by sensitivity (low/central/high), plus shared defaults (including `large_forest_weight`/`small_forest_weight` for yield blending, `max_forestry`/`max_forestry_2050` for f(t) glide path, `max_aggregate_afforestation` cap); drives new-planting response to carbon price in endogenous mode |
-| `forestry/` | `yield_tables.csv` | Cumulative carbon yield (tCO₂e/ha) by forest age for each forest type, with separate _large and _small variants; blended 80/20 on-demand by `DataHandler.get_yield_increments()` for use in endogenous forestry convolution |
+| `forestry/` | `yield_tables.csv` | Cumulative carbon yield (tCO₂e/ha) by forest age for each forest type, with separate large and small variants; config-keyed (e.g., 'central' = original MfE data, 'alternative' = new MPI small-forest data); blended 80/20 on-demand by `DataHandler.get_yield_increments(config)` for use in endogenous forestry convolution |
 | `demand/` | `emissions_baselines.csv` | Baseline emissions pathways (config-keyed) |
 | `demand/` | `demand_models.csv` | Price-response model parameters (config-keyed, by model number) |
 | `economic/` | `CPI.csv` | Consumer Price Index for real↔nominal conversion |
 
 ---
 
-Last updated: 4 August 2026 — May 2026 Excel model update (forestry yield 80/20 blend, industrial allocation calculated mode, Manley f(t) glide path fix, max_aggregate_afforestation correction, data refreshes)
+Last updated: 8 August 2026 — Added config-based yield tables support (central vs alternative MPI small-forest data). Added smooth peak price control mode (quintic formula) with automatic peak-year search capability. May 2026 Excel model update (forestry yield 80/20 blend, industrial allocation calculated mode, Manley f(t) glide path fix, max_aggregate_afforestation correction, data refreshes)

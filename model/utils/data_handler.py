@@ -256,12 +256,32 @@ class DataHandler:
         For production_exotic (averaging forests), yields are truncated at average_age
         (default 16 years) since forests are harvested and replanted at that age.
 
-        Returns dict {forest_type: np.array of annual increments}.
+        Args:
+            config: The configuration name for yield tables (e.g., 'central', 'alternative').
+                   If None, defaults to 'central'.
+
+        Returns:
+            dict {forest_type: np.array of annual increments}.
         """
         if self.yield_tables_data is None:
             raise ValueError(
                 "Yield tables data not loaded. "
                 "Ensure yield_tables.csv exists in the forestry directory."
+            )
+
+        # Default to 'central' config if not specified
+        config_lower = config.lower() if config else 'central'
+
+        # Filter for the specified config
+        config_data = self.yield_tables_data[
+            self.yield_tables_data['Config'].str.lower() == config_lower
+        ]
+
+        if config_data.empty:
+            available_configs = self.yield_tables_data['Config'].unique()
+            raise KeyError(
+                f"No yield table data found for config '{config}'. "
+                f"Available configs: {sorted(list(available_configs))}"
             )
 
         # Get blend weights and average_age from manley parameters
@@ -275,12 +295,19 @@ class DataHandler:
         result = {}
         for forest_type in ['permanent_exotic', 'production_exotic', 'natural_forest']:
             # Get cumulative yields for large and small forests
-            col_large = f"{forest_type}_large"
-            col_small = f"{forest_type}_small"
+            large_data = config_data[
+                (config_data['Forest'] == forest_type) &
+                (config_data['Size'] == 'large')
+            ][['Age', 'Value']].sort_values('Age')
 
-            # Get the data and drop NaN values (different forest types have different lengths)
-            cumulative_large = self.yield_tables_data[col_large].dropna().values.astype(float)
-            cumulative_small = self.yield_tables_data[col_small].dropna().values.astype(float)
+            small_data = config_data[
+                (config_data['Forest'] == forest_type) &
+                (config_data['Size'] == 'small')
+            ][['Age', 'Value']].sort_values('Age')
+
+            # Extract values and drop NaN (different forest types have different lengths)
+            cumulative_large = large_data['Value'].dropna().values.astype(float)
+            cumulative_small = small_data['Value'].dropna().values.astype(float)
 
             # For production_exotic (averaging forests), truncate at average_age
             # These are harvested and replanted at average_age, so only use yields up to that age
@@ -786,6 +813,7 @@ class DataHandler:
             'liquidity_factor': 'liquidity_factor',
             'payback_years': 'payback_period',
             'discount_rate': 'discount_rate',
+            'minimum_stockpile': 'minimum_stockpile',
         }
 
         # Check required parameters exist
@@ -834,6 +862,8 @@ class DataHandler:
                     raise ValueError(f"payback_period must be positive, got {value}")
                 elif param == 'stockpile_usage_start_year' and value < start_year:
                     raise ValueError(f"stockpile_usage_start_year ({value}) cannot be before model start year ({start_year})")
+                elif param == 'minimum_stockpile' and value < 0:
+                    raise ValueError(f"minimum_stockpile cannot be negative, got {value}")
                 
                 # Convert to appropriate type and update result
                 if param in ['payback_period', 'stockpile_usage_start_year', 'stockpile_reference_year']:
@@ -1121,11 +1151,11 @@ class DataHandler:
     def list_available_configs(self, component_type: str) -> List[str]:
         """
         List available predefined input configurations for a component type.
-        
+
         Args:
-            component_type: Type of component to list configs for ('emissions', 'auction', 
-                        'industrial', 'forestry', 'demand_model', 'stockpile')
-        
+            component_type: Type of component to list configs for ('emissions', 'auction',
+                        'industrial', 'forestry', 'demand_model', 'stockpile', 'yield_tables')
+
         Returns:
             List of available configuration names (e.g., ['central', 'high', 'low'])
         """
@@ -1136,14 +1166,15 @@ class DataHandler:
             'industrial': (self.industrial_allocation_data, 'Config'),
             'forestry': (self.removals_data, 'Config'),
             'demand_model': (self.demand_models_data, 'Config'),
-            'stockpile': (self.stockpile_balance_data, 'Config')
+            'stockpile': (self.stockpile_balance_data, 'Config'),
+            'yield_tables': (self.yield_tables_data, 'Config')
         }
-        
+
         if component_type not in option_mapping:
             raise ValueError(f"Invalid component type: {component_type}. Must be one of {list(option_mapping.keys())}")
-            
+
         data, config_col = option_mapping[component_type]
-        
+
         try:
             if data is not None and not data.empty and config_col in data.columns:
                 return sorted(data[config_col].unique().tolist())
@@ -1224,11 +1255,23 @@ class DataHandler:
                 print(f"Warning: Could not load historical data file {file_path}: {e}")
 
     def get_price_control(self, year: int, config: str = 'central') -> float:
-        """Get price control value for a specific year and config."""
+        """
+        Get price control value for a specific year and config.
+
+        For years beyond the CSV data range, returns the last known value
+        to ensure price control continues consistently (avoids kinks at boundary).
+        """
         if self.price_control_data.empty or config not in self.price_control_data.columns:
             return 1.0
         if year in self.price_control_data.index:
             return self.price_control_data.loc[year, config]
+
+        # For years beyond CSV range, use the last known value
+        max_year = self.price_control_data.index.max()
+        if year > max_year:
+            return self.price_control_data.loc[max_year, config]
+
+        # For years before CSV range, return neutral
         return 1.0
 
     def get_historical_data(self, variable: str, nominal: bool = False) -> Optional[pd.Series]:

@@ -6,5 +6,6 @@ end_year,central,2035,End year for optimisation window
 long_term_min,central,50,Long-term deminimus price
 long_term_max,central,na,Long-term max price (not set)
 liquidity_factor,central,0.15,Proportion of non-surplus that can be traded in any given year
+minimum_stockpile,central,0,Minimum total stockpile balance (kt) - stockpile cannot be drawn below this level (0 = no minimum enforced)
 2019_NZD,central,1.187,Convert 2023 NZD to 2019NZD for demand response
 forward_years,central,10,Years ahead that gross emitters look for mitigation decisions

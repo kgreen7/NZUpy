@@ -230,8 +230,8 @@ class NZUpy:
 
         # Initialise internal data structures for calculations
         self.prices = pd.Series(index=self.calculation_years, dtype=float)
-        self.supply = pd.DataFrame(index=self.years)
-        self.demand = pd.Series(index=self.years, dtype=float)
+        self.supply = pd.DataFrame(index=self.calculation_years)
+        self.demand = pd.Series(index=self.calculation_years, dtype=float)
 
         # Price change rate (the optimisation variable)
         self.price_change_rate = 0.0
@@ -299,9 +299,17 @@ class NZUpy:
         'payback_period': 'stockpile',
         'stockpile_usage_start_year': 'stockpile',
         'stockpile_reference_year': 'stockpile',
+        'minimum_stockpile': 'stockpile',
         # Price
         'start_price': 'price',
         'price_control': 'price',
+        # Price control mode (smooth peak)
+        'price_control_mode': 'price',
+        'price_control_peak_year': 'price',
+        'price_control_before': 'price',
+        'price_control_after': 'price',
+        'price_control_width': 'price',
+        'price_control_peak_year_range': 'price',
         # Pricing mode
         'pricing_mode': 'pricing',
         'price_path': 'pricing',
@@ -313,6 +321,7 @@ class NZUpy:
         'forestry_mode':             ('exogenous', 'endogenous'),
         'industrial_mode':           ('calculated', 'fixed'),
         'pricing_mode':              ('optimised', 'fixed_path', 'fixed_rate'),
+        'price_control_mode':        ('exogenous', 'smooth_peak', 'smooth_peak_search'),
         'penalise_shortfalls':       (True, False),
         'manley_sensitivity':        ('low', 'central', 'high'),
         'forestry_price_assumption': ('future', 'current'),
@@ -496,7 +505,7 @@ class NZUpy:
         _valid_stockpile_params = [
             "initial_stockpile", "initial_surplus", "liquidity_factor",
             "discount_rate", "stockpile_usage_start_year", "payback_period",
-            "stockpile_reference_year",
+            "stockpile_reference_year", "minimum_stockpile",
         ]
 
         _valid_forestry_scalars = [
@@ -531,6 +540,8 @@ class NZUpy:
                     raise ValueError(f"liquidity_factor must be between 0 and 1, got {value}")
                 if variable_name == 'discount_rate' and not 0 <= value <= 1:
                     raise ValueError(f"discount_rate must be between 0 and 1, got {value}")
+                if variable_name == 'minimum_stockpile' and value < 0:
+                    raise ValueError(f"minimum_stockpile must be >= 0, got {value}")
                 setattr(self.component_configs[i], variable_name, value)
                 print(f"Set {variable_name}={value} for scenario '{self.scenarios[i]}'")
             elif component == 'demand_model' and variable_name == 'demand_model_number':
@@ -562,6 +573,33 @@ class NZUpy:
                 if not isinstance(value, pd.Series):
                     raise ValueError("price_control must be a pd.Series mapping years to control values")
                 self.component_configs[i].price_control_override = value
+            elif component == 'price' and variable_name in ['price_control_peak_year', 'price_control_before',
+                                                              'price_control_after', 'price_control_width',
+                                                              'price_control_peak_year_range', 'price_control_mode']:
+                # Handle smooth peak mode parameters
+                if variable_name == 'price_control_peak_year':
+                    if not isinstance(value, int):
+                        raise ValueError("price_control_peak_year must be an integer")
+                    setattr(self.component_configs[i], variable_name, value)
+                elif variable_name == 'price_control_peak_year_range':
+                    if not isinstance(value, tuple) or len(value) != 2:
+                        raise ValueError("price_control_peak_year_range must be a tuple (start, end)")
+                    if not all(isinstance(v, int) for v in value):
+                        raise ValueError("price_control_peak_year_range values must be integers")
+                    if value[0] > value[1]:
+                        raise ValueError("price_control_peak_year_range start must be <= end")
+                    setattr(self.component_configs[i], variable_name, value)
+                elif variable_name in ['price_control_before', 'price_control_after', 'price_control_width']:
+                    if not isinstance(value, (int, float)):
+                        raise ValueError(f"{variable_name} must be a number")
+                    setattr(self.component_configs[i], variable_name, float(value))
+                elif variable_name == 'price_control_mode':
+                    if value not in self._MODE_OPTIONS['price_control_mode']:
+                        raise ValueError(
+                            f"price_control_mode must be one of "
+                            f"{list(self._MODE_OPTIONS['price_control_mode'])}, got '{value}'"
+                        )
+                    setattr(self.component_configs[i], variable_name, value)
             elif isinstance(value, pd.Series):
                 self._store_series(variable_name, value, component=component, scenario_index=i)
             else:

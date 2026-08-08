@@ -396,7 +396,8 @@ class ScenarioManager:
                         'discount_rate': getattr(component_config, 'discount_rate', None),
                         'payback_period': getattr(component_config, 'payback_period', None),
                         'stockpile_usage_start_year': getattr(component_config, 'stockpile_usage_start_year', None),
-                        'stockpile_reference_year': getattr(component_config, 'stockpile_reference_year', None)
+                        'stockpile_reference_year': getattr(component_config, 'stockpile_reference_year', None),
+                        'minimum_stockpile': getattr(component_config, 'minimum_stockpile', None)
                     },
                     scenario_name=scenario_name,
                     model_start_year=self.model.config.start_year
@@ -447,7 +448,7 @@ class ScenarioManager:
         
         try:
             self.model.forestry = ForestrySupply(
-                years=self.model.years,
+                years=self.model.calculation_years,
                 forestry_data=forestry_data,
                 mode=forestry_mode,
                 manley_config=component_config if forestry_mode == 'endogenous' else None,
@@ -458,19 +459,19 @@ class ScenarioManager:
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise forestry component: {e}")
-        
+
         try:
             self.model.emissions = EmissionsDemand(
-                years=self.model.years,
+                years=self.model.calculation_years,
                 emissions_data=emissions_data,
                 config_name=component_config.emissions
             )
         except Exception as e:
             raise ValueError(f"Failed to initialise emissions component: {e}")
-        
+
         try:
             self.model.price_response = PriceResponse(
-                years=self.model.years,
+                years=self.model.calculation_years,
                 demand_model_params=demand_model_params
             )
         except Exception as e:

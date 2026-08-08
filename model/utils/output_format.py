@@ -36,16 +36,16 @@ class OutputFormat:
     def __init__(self, model):
         """
         Initialise the output formatter with a reference to the model.
-        
+
         Args:
             model: Reference to the NZUpy instance
         """
         self.model = model
-        self.years = model.years
+        self.years = model.calculation_years
         self.scenarios = model.scenarios  # These are model scenarios, not configs
         self.results = model.results
         self.data_handler = model.data_handler  # Get data_handler from model
-        
+
         # Variable schema for documentation and helper methods
         self._variable_schema = self._create_variable_schema()
     

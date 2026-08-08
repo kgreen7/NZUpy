@@ -248,3 +248,116 @@ class TestValidation:
             make_stockpile(lf=1.5)
         with pytest.raises(ValueError):
             make_stockpile(lf=-0.1)
+
+
+class TestMinimumStockpile:
+    """Tests for minimum_stockpile parameter that prevents drawing below a floor level."""
+
+    def test_surplus_draw_respects_minimum(self):
+        """Surplus drawdown stops when stockpile hits minimum floor."""
+        # Start with 100,000 total (50,000 surplus, 50,000 non-surplus)
+        # Set minimum to 80,000 → can only draw 20,000 max
+        sp = StockpileSupply(
+            years=BASE_YEARS,
+            extended_years=EXTENDED_YEARS,
+            initial_stockpile=100000,
+            initial_surplus=50000,
+            liquidity_factor=0.15,
+            payback_period=5,
+            discount_rate=0.05,
+            stockpile_reference_year=2023,
+            stockpile_usage_start_year=2024,
+            minimum_stockpile=80000,
+        )
+        # Large shortfall that would normally drain surplus completely
+        shortfall = pd.Series(-60000.0, index=BASE_YEARS)
+        result = sp.calculate(shortfall, price_change_rates=low_rates())
+
+        # Should only draw 20,000 from surplus to reach minimum of 80,000
+        assert result.loc[2024, 'surplus_used'] == pytest.approx(20000.0, abs=0.1)
+        assert result.loc[2024, 'stockpile_balance'] == pytest.approx(80000.0, abs=0.1)
+
+    def test_non_surplus_draw_respects_minimum(self):
+        """Non-surplus drawdown stops when stockpile hits minimum floor."""
+        sp = StockpileSupply(
+            years=BASE_YEARS,
+            extended_years=EXTENDED_YEARS,
+            initial_stockpile=100000,
+            initial_surplus=0,  # No surplus, test non-surplus drawdown
+            liquidity_factor=0.20,  # 20% of 100,000 = 20,000 available
+            payback_period=5,
+            discount_rate=0.05,
+            stockpile_reference_year=2023,
+            stockpile_usage_start_year=2024,
+            minimum_stockpile=90000,  # Can only draw 10,000
+        )
+        # Shortfall larger than what minimum allows
+        shortfall = pd.Series(-25000.0, index=BASE_YEARS)
+        result = sp.calculate(shortfall, price_change_rates=low_rates())
+
+        # Should only draw 10,000 to reach minimum of 90,000
+        assert result.loc[2024, 'non_surplus_used'] == pytest.approx(10000.0, abs=0.1)
+        assert result.loc[2024, 'stockpile_balance'] == pytest.approx(90000.0, abs=0.1)
+
+    def test_minimum_zero_allows_full_drawdown(self):
+        """When minimum_stockpile=0, stockpile can be fully drained (backward compatibility)."""
+        sp = StockpileSupply(
+            years=BASE_YEARS,
+            extended_years=EXTENDED_YEARS,
+            initial_stockpile=50000,
+            initial_surplus=50000,
+            liquidity_factor=1.0,  # Allow full non-surplus drawdown
+            payback_period=5,
+            discount_rate=0.05,
+            stockpile_reference_year=2023,
+            stockpile_usage_start_year=2024,
+            minimum_stockpile=0,  # No minimum constraint
+        )
+        # Shortfall larger than entire stockpile
+        shortfall = pd.Series(-60000.0, index=BASE_YEARS)
+        result = sp.calculate(shortfall, price_change_rates=low_rates())
+
+        # Should draw all surplus (50,000)
+        assert result.loc[2024, 'surplus_used'] == pytest.approx(50000.0, abs=0.1)
+        # Stockpile can reach 0 when minimum=0
+        assert result.loc[2024, 'stockpile_balance'] >= 0
+
+    def test_combined_surplus_and_non_surplus_respects_minimum(self):
+        """Both surplus and non-surplus drawdown together respect minimum floor."""
+        sp = StockpileSupply(
+            years=BASE_YEARS,
+            extended_years=EXTENDED_YEARS,
+            initial_stockpile=150000,
+            initial_surplus=60000,
+            liquidity_factor=0.20,  # 20% of 90,000 = 18,000 non-surplus available
+            payback_period=5,
+            discount_rate=0.05,
+            stockpile_reference_year=2023,
+            stockpile_usage_start_year=2024,
+            minimum_stockpile=100000,  # Can draw 50,000 total
+        )
+        # Shortfall of 70,000 (more than 50,000 drawable)
+        shortfall = pd.Series(-70000.0, index=BASE_YEARS)
+        result = sp.calculate(shortfall, price_change_rates=low_rates())
+
+        # Should draw surplus first (50,000 available given minimum)
+        assert result.loc[2024, 'surplus_used'] == pytest.approx(50000.0, abs=0.1)
+        # No non-surplus drawn because already at minimum
+        assert result.loc[2024, 'non_surplus_used'] == pytest.approx(0.0, abs=0.1)
+        assert result.loc[2024, 'stockpile_balance'] == pytest.approx(100000.0, abs=0.1)
+
+    def test_raises_on_negative_minimum(self):
+        """ValueError raised if minimum_stockpile < 0."""
+        with pytest.raises(ValueError, match="minimum_stockpile must be >= 0"):
+            StockpileSupply(
+                years=BASE_YEARS,
+                extended_years=EXTENDED_YEARS,
+                initial_stockpile=150000,
+                initial_surplus=50000,
+                liquidity_factor=0.15,
+                payback_period=5,
+                discount_rate=0.05,
+                stockpile_reference_year=2023,
+                stockpile_usage_start_year=2024,
+                minimum_stockpile=-5000,  # Invalid
+            )

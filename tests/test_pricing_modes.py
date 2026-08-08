@@ -247,3 +247,232 @@ class TestFillModeNote:
     def test_fill_pricing_mode_still_sets_value(self, allocated_model):
         allocated_model.fill("pricing_mode", "fixed_rate", scenario="S1")
         assert allocated_model.component_configs[0].pricing_mode == "fixed_rate"
+
+
+# ---------------------------------------------------------------------------
+# Smooth peak price control mode
+# ---------------------------------------------------------------------------
+
+class TestSmoothPeakPriceControl:
+    """Tests for smooth_peak and smooth_peak_search price control modes."""
+
+    def test_smootherstep_formula_correctness(self, test_data_dir):
+        """Test quintic smootherstep formula produces correct values."""
+        from model.core.base_model import NZUpy
+
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2040)
+        nzu.define_scenarios(["Test"])
+        nzu.allocate()
+        nzu.fill_defaults()
+
+        # Set smooth_peak mode with peak_year=2032, width=6
+        # Transition: 2029 (2032-3) to 2035 (2032+3)
+        nzu.set_mode('price_control_mode', 'smooth_peak', scenario='Test')
+        nzu.fill('price_control_peak_year', 2032, scenario='Test')
+        nzu.fill('price_control_width', 6.0, scenario='Test')
+        nzu.fill('price_control_before', -1.0, scenario='Test')
+        nzu.fill('price_control_after', 0.5, scenario='Test')
+
+        # Manually call the smooth control calculation
+        cfg = nzu.component_configs[0]
+        nzu._active_scenario_index = 0
+        engine = nzu.calculation_engine
+
+        # Test boundary regions
+        assert engine._calculate_smooth_control_value(2028, cfg) == -1.0  # Before
+        assert engine._calculate_smooth_control_value(2036, cfg) == 0.5   # After
+
+        # Test midpoint (should be halfway between -1.0 and 0.5 = -0.25)
+        mid_value = engine._calculate_smooth_control_value(2032, cfg)
+        assert -0.26 < mid_value < -0.24  # Approximately -0.25
+
+        # Test monotonicity: values should increase from before to after
+        v1 = engine._calculate_smooth_control_value(2030, cfg)
+        v2 = engine._calculate_smooth_control_value(2031, cfg)
+        v3 = engine._calculate_smooth_control_value(2033, cfg)
+        v4 = engine._calculate_smooth_control_value(2034, cfg)
+        assert -1.0 < v1 < v2 < mid_value < v3 < v4 < 0.5
+
+    def test_exogenous_mode_unchanged(self, test_data_dir):
+        """Regression test: exogenous mode still works with CSV configs."""
+        from model.core.base_model import NZUpy
+
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2035)
+        nzu.define_scenarios(["Central"])
+        nzu.allocate()
+        nzu.fill_defaults()
+        nzu.fill_component('price', config='central', scenario='Central')
+
+        # Run with exogenous mode (default)
+        results = nzu.run()
+
+        # Should complete successfully
+        assert 'Central' in results
+        assert 'prices' in results['Central']
+        assert results['Central']['convergence_success']
+
+    def test_smooth_peak_mode_validation(self, allocated_model):
+        """Test that smooth_peak mode requires peak_year to be set."""
+        allocated_model.fill_defaults()
+        allocated_model.set_mode('price_control_mode', 'smooth_peak', scenario='S1')
+
+        # Should raise if peak_year not set
+        with pytest.raises(ValueError, match="price_control_peak_year must be set"):
+            allocated_model.run()
+
+    def test_smooth_peak_mode_peak_year_in_range(self, allocated_model):
+        """Test that peak_year must be within model year range."""
+        allocated_model.fill_defaults()
+        allocated_model.set_mode('price_control_mode', 'smooth_peak', scenario='S1')
+        allocated_model.fill('price_control_peak_year', 2050, scenario='S1')  # Outside 2024-2035
+
+        # Should raise during run
+        with pytest.raises(ValueError, match="must fall within the model's year range"):
+            allocated_model.run()
+
+    def test_smooth_peak_mode_default_parameters(self, test_data_dir):
+        """Test that smooth_peak mode uses correct defaults."""
+        from model.core.base_model import NZUpy
+
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2035)
+        nzu.define_scenarios(["Test"])
+        nzu.allocate()
+        nzu.fill_defaults()
+
+        cfg = nzu.component_configs[0]
+        # Check defaults from ComponentConfig
+        assert cfg.price_control_before == -1.0
+        assert cfg.price_control_after == 0.5
+        assert cfg.price_control_width == 5.0
+
+    def test_fill_smooth_peak_parameters(self, allocated_model):
+        """Test that smooth peak parameters can be set via fill()."""
+        allocated_model.fill('price_control_peak_year', 2030, scenario='S1')
+        allocated_model.fill('price_control_before', -0.8, scenario='S1')
+        allocated_model.fill('price_control_after', 0.7, scenario='S1')
+        allocated_model.fill('price_control_width', 4.0, scenario='S1')
+
+        cfg = allocated_model.component_configs[0]
+        assert cfg.price_control_peak_year == 2030
+        assert cfg.price_control_before == -0.8
+        assert cfg.price_control_after == 0.7
+        assert cfg.price_control_width == 4.0
+
+    def test_smooth_peak_search_requires_range(self, allocated_model):
+        """Test that smooth_peak_search mode requires peak_year_range."""
+        allocated_model.fill_defaults()
+        allocated_model.set_mode('price_control_mode', 'smooth_peak_search', scenario='S1')
+
+        # Should raise if range not set
+        with pytest.raises(ValueError, match="peak_year_range to be set"):
+            allocated_model.run()
+
+    def test_fill_peak_year_range_validation(self, allocated_model):
+        """Test validation of peak_year_range parameter."""
+        # Should accept valid tuple
+        allocated_model.fill('price_control_peak_year_range', (2028, 2032), scenario='S1')
+        assert allocated_model.component_configs[0].price_control_peak_year_range == (2028, 2032)
+
+        # Should reject non-tuple
+        with pytest.raises(ValueError, match="must be a tuple"):
+            allocated_model.fill('price_control_peak_year_range', [2028, 2032], scenario='S1')
+
+        # Should reject wrong size
+        with pytest.raises(ValueError, match="must be a tuple"):
+            allocated_model.fill('price_control_peak_year_range', (2028, 2030, 2032), scenario='S1')
+
+        # Should reject non-integers
+        with pytest.raises(ValueError, match="must be integers"):
+            allocated_model.fill('price_control_peak_year_range', (2028.5, 2032.5), scenario='S1')
+
+        # Should reject start > end
+        with pytest.raises(ValueError, match="start must be <= end"):
+            allocated_model.fill('price_control_peak_year_range', (2032, 2028), scenario='S1')
+
+
+    def test_exogenous_price_control_continues_beyond_csv_range(self, test_data_dir):
+        """Test that exogenous price control continues last value beyond CSV range (no kink post-2050)."""
+        from model.core.base_model import NZUpy
+
+        # Create model with extended calculation years
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2050)  # projection_horizon defaults to 25, so calculation_years extend to 2075
+        nzu.define_scenarios(["Test"])
+        nzu.allocate()
+
+        # Get price control values for years beyond CSV range
+        control_2050 = nzu.data_handler.get_price_control(2050, config='scarcity_then_surplus')
+        control_2051 = nzu.data_handler.get_price_control(2051, config='scarcity_then_surplus')
+        control_2075 = nzu.data_handler.get_price_control(2075, config='scarcity_then_surplus')
+
+        # All should be 0.5 (the 2050 value), not 1.0
+        assert control_2050 == 0.5
+        assert control_2051 == 0.5  # Continues last value
+        assert control_2075 == 0.5  # Continues last value
+        assert control_2051 != 1.0  # Should NOT default to neutral
+
+
+class TestSmoothPeakSearchMode:
+    """Tests for smooth_peak_search optimization."""
+
+    def test_peak_search_selects_lowest_gap(self, test_data_dir):
+        """Test that peak search selects the candidate with lowest gap."""
+        from model.core.base_model import NZUpy
+
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2035)
+        nzu.define_scenarios(["Search"])
+        nzu.allocate()
+        nzu.fill_defaults()
+
+        # Configure for search with narrow range (3 candidates to keep test fast)
+        nzu.set_mode('price_control_mode', 'smooth_peak_search', scenario='Search')
+        nzu.fill('price_control_peak_year_range', (2029, 2031), scenario='Search')
+        nzu.fill('price_control_width', 4.0, scenario='Search')
+
+        # Run the search
+        results = nzu.run()
+
+        # Verify search diagnostics exist
+        assert 'peak_year_search' in results['Search']
+        search = results['Search']['peak_year_search']
+        assert 'candidates' in search
+        assert 'selected_peak_year' in search
+
+        # Verify all candidates were tested
+        assert len(search['candidates']) == 3
+        tested_years = [c['peak_year'] for c in search['candidates']]
+        assert set(tested_years) == {2029, 2030, 2031}
+
+        # Verify selected peak year has lowest gap
+        selected = search['selected_peak_year']
+        selected_gap = next(c['min_gap'] for c in search['candidates'] if c['peak_year'] == selected)
+        all_gaps = [c['min_gap'] for c in search['candidates']]
+        assert selected_gap == min(all_gaps)
+
+    def test_peak_search_stores_all_candidates(self, test_data_dir):
+        """Test that search results store all candidate information."""
+        from model.core.base_model import NZUpy
+
+        nzu = NZUpy(data_dir=test_data_dir)
+        nzu.define_time(2024, 2035)
+        nzu.define_scenarios(["Test"])
+        nzu.allocate()
+        nzu.fill_defaults()
+
+        nzu.set_mode('price_control_mode', 'smooth_peak_search', scenario='Test')
+        nzu.fill('price_control_peak_year_range', (2028, 2030), scenario='Test')
+
+        results = nzu.run()
+        candidates = results['Test']['peak_year_search']['candidates']
+
+        # Each candidate should have required fields
+        for candidate in candidates:
+            assert 'peak_year' in candidate
+            assert 'optimal_rate' in candidate
+            assert 'min_gap' in candidate
+            assert isinstance(candidate['optimal_rate'], (int, float))
+            assert isinstance(candidate['min_gap'], (int, float))

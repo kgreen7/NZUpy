@@ -69,6 +69,7 @@ class ComponentConfig:
     payback_period: Optional[int] = None
     stockpile_usage_start_year: Optional[int] = None
     stockpile_reference_year: Optional[int] = None
+    minimum_stockpile: Optional[float] = None
 
     # Forestry mode settings
     forestry_mode: str = 'exogenous'            # 'exogenous' or 'endogenous'
@@ -92,4 +93,12 @@ class ComponentConfig:
 
     # Per-scenario price control override (set via fill('price_control', pd.Series(...)))
     price_control_override: Optional[object] = None  # pd.Series mapping year → control value
+
+    # Price control mode settings
+    price_control_mode: str = 'exogenous'           # 'exogenous' | 'smooth_peak' | 'smooth_peak_search'
+    price_control_peak_year: Optional[int] = None   # Peak year for smooth_peak modes (required if mode != 'exogenous')
+    price_control_before: float = -1.0              # Control value before transition (default: scarcity regime)
+    price_control_after: float = 0.5                # Control value after transition (default: surplus regime)
+    price_control_width: float = 5.0                # Transition width in years (default: 5-year smooth S-curve)
+    price_control_peak_year_range: Optional[object] = None  # Tuple (start, end) for peak-year search mode
 
