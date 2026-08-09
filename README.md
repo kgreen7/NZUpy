@@ -10,9 +10,10 @@ This model enables users to understand how different regulatory settings and sce
 
 Key features include:
 
-- **Carbon price projections** - Calculate price paths that balance supply and demand
+- **Carbon price projections** - Calculate price paths that balance supply and demand using optimised or fixed price modes
 - **Component-based architecture** - Modular design for supply (auctions, forestry, industrial allocation, stockpile) and demand (emissions, price response)
-- **Endogenous forestry** - Price-responsive afforestation using the Manley logistic model, matching the Excel model's methodology
+- **Endogenous forestry** - Price-responsive afforestation using the Manley logistic model, with configurable yield tables (including MPI 2025 consultation updates)
+- **Advanced price control** - Smooth peak transitions with automatic peak-year optimisation
 - **Scenario analysis** - Run and compare multiple scenarios with different input configurations
 - **Uncertainty analysis** - Generate uncertainty bands around central projections
 - **Visualisation tools** - Create standardised charts for model outputs
@@ -108,8 +109,11 @@ nzu.fill_defaults()
 nzu.fill_component('stockpile', config='EY24_central')
 
 # Enable price-responsive afforestation
-nzu.fill('forestry_mode', 'endogenous')
-nzu.fill('manley_sensitivity', 'central')  # 'low', 'central', or 'high'
+nzu.set_mode('forestry_mode', 'endogenous')
+nzu.set_mode('manley_sensitivity', 'central')  # 'low', 'central', or 'high'
+
+# Optional: use alternative MPI yield tables (from 2025 consultation)
+nzu.fill_component('forestry', config='alternative')  # default is 'central'
 
 nzu.run()
 print(nzu.forestry)  # includes Manley planting and total removals
@@ -237,16 +241,36 @@ central_prices = model.prices[('central', 'carbon_price')]
 emissions = model.demand.xs('emissions', level='variable', axis=1)
 ```
 
+## Key Enhancements vs Excel Model
+
+While NZUpy maintains alignment with the Government's Excel model methodology, it includes several enhancements that provide additional flexibility:
+
+### Configurable Yield Tables
+- **Multiple forestry yield datasets**: Switch between 'central' (original MfE data) and 'alternative' (MPI 2025 consultation small-forest updates) yield tables
+- Easy comparison of different forest growth assumptions without manual file swapping
+- Configured via: `nzu.fill_component('forestry', config='alternative')`
+
+### Advanced Price Control Options
+- **Smooth peak price control**: Uses quintic smootherstep formula for C²-continuous transitions between price control regimes
+- **Automatic peak-year optimisation**: Searches across a specified range of peak years and selects the one producing the best supply-demand balance
+- Configured via: `nzu.set_mode('price_control_mode', 'smooth_peak_search')` and `nzu.fill('price_control_peak_year_range', (2030, 2040))`
+
+### Fixed Price Path Modes
+- **Exogenous price paths**: Run the model with user-specified price trajectories to analyse supply-demand outcomes without optimisation
+- **Two modes available**:
+  - `fixed_path`: Provide year-by-year prices via `nzu.fill('price_path', pd.Series)`
+  - `fixed_rate`: Provide a constant growth rate via `nzu.fill('price_change_rate', 0.03)`
+- Configured via: `nzu.set_mode('pricing_mode', 'fixed_path')` or `'fixed_rate'`
+
 ## Forthcoming features
 
 - Improved representation of historical years data in output results
-- Ability to run model with fixed (exogenous) NZU price paths
 
 ## Frequently asked questions
 
-   ***Will you add additional features that build upon the Government's excel model? For example, SciPy optimisation, enhanced representation of industrial allocation...***
+***Will you add additional features that build upon the Government's Excel model? For example, SciPy optimisation, enhanced representation of industrial allocation...***
 
-- There are currently no plans for this. This repository aims to serve as a base model with methods aligned with the Government's excel-based NZ ETS model. Those who wish to enhance functionality are encouraged to fork the repository for their own development.
+- There are currently no plans for this. This repository aims to serve as a base model with methods aligned with the Government's Excel-based NZ ETS model. Those who wish to enhance functionality are encouraged to fork the repository for their own development.
 
 ***Can I use NZUpy for commercial purposes? Are there any fees for its use?***
 
