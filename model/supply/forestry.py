@@ -156,17 +156,18 @@ class ForestrySupply:
         self.LMV = _cfg('manley_LMV', 'LMV', 10000.0)
         # LUC limit (max annual new planting in ha)
         self.LUC_limit = _cfg('manley_LUC_limit', 'LUC_limit', 100000.0)
-        self.max_forestry = p.get('max_forestry', 50000.0)
-        self.max_forestry_2050 = p.get('max_forestry_2050', 50000.0)
+        self.max_manley_forestry = p.get('max_manley_forestry', 50000.0)
+        self.max_manley_forestry_2050 = p.get('max_manley_forestry_2050', 50000.0)
         self.max_aggregate_afforestation = p.get('max_aggregate_afforestation', 1_000_000_000.0)
 
         n = len(self.years)
 
-        # f(t): logistic asymptote in '000 ha — glides linearly from max_forestry (2022)
-        # to max_forestry_2050 (2050), then holds flat for years after 2050.
+        # f(t): logistic asymptote in '000 ha — glides linearly from max_manley_forestry (2022)
+        # to max_manley_forestry_2050 (2050), then holds flat for years after 2050.
         # Matches Afforestation!row24 in Excel (does NOT vary with sensitivity).
-        start_f = self.max_forestry / 1000       # value at year 2022 (in '000 ha)
-        end_f = self.max_forestry_2050 / 1000    # value at year 2050 (in '000 ha)
+        # This f(t) glide path IS the asymptote parameter in the Manley logistic equation.
+        start_f = self.max_manley_forestry / 1000       # value at year 2022 (in '000 ha)
+        end_f = self.max_manley_forestry_2050 / 1000    # value at year 2050 (in '000 ha)
 
         def _f_at(year):
             """Compute f(t) at a given year, matching Excel's 2022→2050 glide path."""
@@ -346,7 +347,7 @@ class ForestrySupply:
         # Annual new planting in ha (capped at LUC_limit only)
         annual_diff = np.diff(cumulative, prepend=0)  # same as rate * 1000
         # Apply limit_factor, then LUC_limit
-        # (no separate max_forestry cap — f(t) glide path already constrains the sigmoid asymptote)
+        # (no separate annual cap beyond LUC_limit — f(t) glide path from max_manley_forestry already constrains the sigmoid asymptote)
         annual_planting = annual_diff * limit_factor
         annual_planting = np.minimum(annual_planting, self.LUC_limit)
 

@@ -325,6 +325,7 @@ class NZUpy:
         'penalise_shortfalls':       (True, False),
         'manley_sensitivity':        ('low', 'central', 'high'),
         'forestry_price_assumption': ('future', 'current'),
+        'yield_table_config':        ('central', 'alternative'),
     }
 
     def fill_defaults(self, config: str = 'central') -> 'NZUpy':

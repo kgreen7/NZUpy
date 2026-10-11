@@ -107,8 +107,8 @@ MANLEY_PARAMS = {
     'LUC_limit': 100000.0,
     'forestry_discount_rate': 0.08,
     'forestry_forward_years': 15,
-    'max_forestry': 50000.0,
-    'max_forestry_2050': 50000.0,
+    'max_manley_forestry': 50000.0,
+    'max_manley_forestry_2050': 50000.0,
     'max_aggregate_afforestation': 1_000_000.0,  # Corrected from 1 billion to 1 million
     'price_conversion_2021': 1.140449438,
 }
@@ -222,8 +222,8 @@ class TestEndogenousCalculation:
     def test_manley_planting_capped_at_LUC_limit(self):
         """Annual planting never exceeds LUC_limit parameter.
 
-        Note: max_forestry no longer acts as a post-sigmoid cap; it constrains
-        the sigmoid asymptote via f(t). LUC_limit is the only hard annual cap.
+        Note: max_manley_forestry constrains the sigmoid asymptote via f(t).
+        LUC_limit is the only hard annual cap applied to the output.
         """
         fs = make_endogenous_fs()
         result = fs.calculate(pd.Series(500.0, index=MODEL_YEARS))  # high price
@@ -271,7 +271,7 @@ class TestEndogenousCalculation:
 
         LMV is the sensitivity parameter that actually affects results (via the
         profit calculation). Parameter 'f' no longer varies with sensitivity — it's
-        now derived from max_forestry glide path.
+        now derived from max_manley_forestry glide path.
         """
         low_LMV_params = {**MANLEY_PARAMS, 'LMV': 7500.0}  # High sensitivity (low LMV)
         high_LMV_params = {**MANLEY_PARAMS, 'LMV': 10000.0}  # Low sensitivity (high LMV)
@@ -295,14 +295,14 @@ class TestEndogenousCalculation:
 
 class TestFtGlidePath:
     def test_ft_time_varying_when_max_forestry_differs(self):
-        """f(t) glides linearly from max_forestry (2022) to max_forestry_2050 (2050).
+        """f(t) glides linearly from max_manley_forestry (2022) to max_manley_forestry_2050 (2050).
 
-        When max_forestry != max_forestry_2050, f(t) should vary by year.
+        When max_manley_forestry != max_manley_forestry_2050, f(t) should vary by year.
         """
         params_declining = {
             **MANLEY_PARAMS,
-            'max_forestry': 60000.0,
-            'max_forestry_2050': 40000.0,
+            'max_manley_forestry': 60000.0,
+            'max_manley_forestry_2050': 40000.0,
         }
         fs = make_endogenous_fs(manley_params=params_declining)
 
@@ -321,12 +321,12 @@ class TestFtGlidePath:
         assert f_series[2024] == pytest.approx(expected_2024, abs=0.01)
 
     def test_ft_flattens_after_2050(self):
-        """f(t) holds constant at max_forestry_2050 value for years after 2050."""
+        """f(t) holds constant at max_manley_forestry_2050 value for years after 2050."""
         years_extended = list(range(2024, 2061))  # Include years past 2050
         params_declining = {
             **MANLEY_PARAMS,
-            'max_forestry': 60000.0,
-            'max_forestry_2050': 40000.0,
+            'max_manley_forestry': 60000.0,
+            'max_manley_forestry_2050': 40000.0,
         }
 
         fs = ForestrySupply(
@@ -342,7 +342,7 @@ class TestFtGlidePath:
 
         f_series = fs._f_series
 
-        # f(2050) should equal max_forestry_2050 / 1000 = 40
+        # f(2050) should equal max_manley_forestry_2050 / 1000 = 40
         assert f_series[2050] == pytest.approx(40.0, abs=0.01)
 
         # f(2051), f(2055), f(2060) should all equal f(2050) (flattened)
@@ -353,7 +353,7 @@ class TestFtGlidePath:
     def test_manley_f_parameter_has_no_effect(self):
         """Changing manley_f parameter has no effect on results.
 
-        f(t) is now derived from max_forestry/max_forestry_2050, not from
+        f(t) is now derived from max_manley_forestry/max_manley_forestry_2050, not from
         the 'f' parameter (which was previously tied to manley_sensitivity).
         """
         params_f60k = {**MANLEY_PARAMS, 'f': 60000.0}

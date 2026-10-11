@@ -16,7 +16,7 @@ Year = int             # Calendar year
 class ModelConfig:
     """Temporal, price-control, and optimiser configuration for the NZ ETS model."""
 
-    start_year: Year = 2024
+    start_year: Year = 2025
     end_year: Year = 2050
     price_control_values: Dict[Year, float] = field(default_factory=dict)
 
@@ -75,6 +75,7 @@ class ComponentConfig:
     forestry_mode: str = 'exogenous'            # 'exogenous' or 'endogenous'
     manley_sensitivity: str = 'central'          # 'low', 'central', 'high' — selects f and LMV
     forestry_price_assumption: str = 'future'    # 'future' or 'current'
+    yield_table_config: str = 'central'          # 'central' (original MfE) or 'alternative' (MPI 2025)
 
     # Industrial allocation mode settings
     industrial_mode: str = 'calculated'         # 'calculated' or 'fixed'

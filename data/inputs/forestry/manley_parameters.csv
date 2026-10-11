@@ -1,24 +1,24 @@
-Config,Variable,Value
-low,f,60000
-central,f,100000
-high,f,120000
-low,LMV,10000
-central,LMV,10000
-high,LMV,10000
-default,g,4844
-default,h,0.0005292
-default,LEV_logs,1965.333333
-default,LEV_constant,0.8262
-default,LMV_constant,0.4329
-default,LEV_carbon_per_dollar,175.7764755
-default,price_lag,2
-default,LUC_limit,100000
-default,forestry_discount_rate,0.08
-default,forestry_forward_years,5
-default,max_forestry,50000
-default,max_forestry_2050,50000
-default,max_aggregate_afforestation,1000000
-default,price_conversion_2021,1.140449438
-default,large_forest_weight,0.8
-default,small_forest_weight,0.2
-default,average_age,16
+Config,Variable,Value,Notes
+low,f,60000,Legacy parameter - not currently used in calculations (display only)
+central,f,100000,Legacy parameter - not currently used in calculations (display only)
+high,f,120000,Legacy parameter - not currently used in calculations (display only)
+low,LMV,10000,Land market value ($/ha) - affects Manley profit calculation
+central,LMV,10000,Land market value ($/ha) - affects Manley profit calculation
+high,LMV,10000,Land market value ($/ha) - affects Manley profit calculation
+default,g,4844,Manley logistic equation parameter g (profit threshold)
+default,h,0.0005292,Manley logistic equation parameter h (profit sensitivity)
+default,LEV_logs,1965.333333,Land expectation value from logs ($/ha)
+default,LEV_constant,0.8262,LEV multiplier for carbon price effect
+default,LMV_constant,0.4329,LMV multiplier in profit calculation
+default,LEV_carbon_per_dollar,175.7764755,Carbon value per dollar of price (tCO2e/ha per $/tCO2e)
+default,price_lag,2,Years of lag for current-price mode
+default,LUC_limit,50000,Annual land use change limit (ha/year) - caps new planting per year
+default,forestry_discount_rate,0.08,Discount rate for NPV calculations
+default,forestry_forward_years,5,Years forward for price averaging (future-price mode)
+default,max_manley_forestry,50000,Maximum available land for new forestry in 2022 ('000 ha) - affects Manley logistic asymptote f(t) at start of glide path
+default,max_manley_forestry_2050,50000,Maximum available land for new forestry in 2050 ('000 ha) - affects Manley logistic asymptote f(t) at end of glide path
+default,max_aggregate_afforestation,1000000,Maximum cumulative afforestation (ha) - scales down total planting trajectory if exceeded at 2050
+default,price_conversion_2021,1.140449438,Price conversion factor to 2021 dollars
+default,large_forest_weight,0.8,Weight for large-forest yield table in blended yield calculation
+default,small_forest_weight,0.2,Weight for small-forest yield table in blended yield calculation
+default,average_age,16,Average forest age (years) - used for yield curve calculations
